@@ -1,1 +1,79 @@
 package service
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+
+	"content-backend/internal/model"
+	"content-backend/internal/repository"
+	"golang.org/x/crypto/bcrypt"
+)
+
+var ErrEmailAlreadyRegistered = errors.New("email already registered")
+var ErrInvalidCredentials = errors.New("invalid credentials")
+
+type AuthService struct {
+	userRepo *repository.UserRepository
+}
+
+func NewAuthService(userRepo *repository.UserRepository) *AuthService {
+	return &AuthService{userRepo: userRepo}
+}
+
+func hashPassword(password string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashed), nil
+}
+
+func comparePassword(hash string, password string) error {
+	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+}
+
+func (s *AuthService) Register(ctx context.Context, email, password string) (int64, error) {
+	_, err := s.userRepo.GetByEmail(ctx, email)
+	if err == nil {
+		return 0, ErrEmailAlreadyRegistered
+	}
+	if err != sql.ErrNoRows {
+		return 0, err
+	}
+
+	passwordHash, err := hashPassword(password)
+	if err != nil {
+		return 0, err
+	}
+
+	user := model.User{
+		Email:        email,
+		PasswordHash: passwordHash,
+	}
+
+	id, err := s.userRepo.Create(ctx, user)
+	if err != nil {
+		return 0, err
+	}
+
+	return id, nil
+}
+
+
+func (s *AuthService) Login(ctx context.Context, email, password string) (int64, error) {
+	user, err := s.userRepo.GetByEmail(ctx, email)
+	if err == sql.ErrNoRows {
+		return 0, ErrInvalidCredentials
+	}
+	if err != nil {
+		return 0, err
+	}
+
+	err = comparePassword(user.PasswordHash, password)
+	if err != nil {
+		return 0, ErrInvalidCredentials
+	}
+
+	return user.ID, nil
+}
