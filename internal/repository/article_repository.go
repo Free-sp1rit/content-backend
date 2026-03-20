@@ -30,7 +30,7 @@ func (r *ArticleRepository) Create(ctx context.Context, article model.Article) (
 		article.Title,
 		article.Content,
 	).Scan(&id)
-	
+
 	if err != nil {
 		return 0, err
 	}
@@ -59,7 +59,7 @@ func (r *ArticleRepository) GetByID(ctx context.Context, id int64) (model.Articl
 		&article.CreatedAt,
 		&article.UpdatedAt,
 	)
-	
+
 	if err != nil {
 		return model.Article{}, err
 	}
@@ -80,7 +80,7 @@ func (r *ArticleRepository) UpdateState(ctx context.Context, id int64, state str
 		id,
 		state,
 	)
-	
+
 	if err != nil {
 		return err
 	}
@@ -102,7 +102,7 @@ func (r *ArticleRepository) UpdateContent(ctx context.Context, id int64, title s
 		title,
 		content,
 	)
-	
+
 	if err != nil {
 		return err
 	}
@@ -128,7 +128,7 @@ func (r *ArticleRepository) ListByState(ctx context.Context, state string) ([]mo
 	}
 	defer rows.Close()
 
-	var articles []model.Article	
+	var articles []model.Article
 	for rows.Next() {
 		var article model.Article
 		err := rows.Scan(
@@ -147,11 +147,11 @@ func (r *ArticleRepository) ListByState(ctx context.Context, state string) ([]mo
 
 		articles = append(articles, article)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	
+
 	return articles, nil
 }
 
@@ -173,7 +173,7 @@ func (r *ArticleRepository) ListByAuthorID(ctx context.Context, authorID int64) 
 	}
 	defer rows.Close()
 
-	var articles []model.Article	
+	var articles []model.Article
 	for rows.Next() {
 		var article model.Article
 		err := rows.Scan(
@@ -192,10 +192,10 @@ func (r *ArticleRepository) ListByAuthorID(ctx context.Context, authorID int64) 
 
 		articles = append(articles, article)
 	}
-	
+
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	
+
 	return articles, nil
 }

@@ -23,12 +23,12 @@ func NewArticleService(articleRepo *repository.ArticleRepository) *ArticleServic
 func (s *ArticleService) CreateArticle(ctx context.Context, authorID int64, title, content string) (int64, error) {
 	article := model.Article{
 		AuthorID: authorID,
-		Title: title,
-		Content: content,
+		Title:    title,
+		Content:  content,
 	}
 
 	id, err := s.articleRepo.Create(ctx, article)
-	if(err != nil) {
+	if err != nil {
 		return 0, err
 	}
 
@@ -59,4 +59,3 @@ func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentU
 
 	return nil
 }
-
