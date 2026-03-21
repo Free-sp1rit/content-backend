@@ -69,10 +69,12 @@ func main() {
 		"/me/articles",
 		authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.ListMyArticles)),
 	)
+	http.HandleFunc("/articles/{id}", articleHandler.GetArticle)
 
 	log.Println("server listening on :8080")
 	err = http.ListenAndServe(":8080", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
+
 }

@@ -136,8 +136,35 @@ func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) 
 	}
 
 	responses := toArticleResponses(articles)
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(responses)
+}
+
+func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, err := parseArticleID(r.URL.Path)
+	if errors.Is(err, ErrInvalidArticleID) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	article, err := h.articleService.GetArticle(r.Context(), id)
+	if errors.Is(err, service.ErrArticleNotFound) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	res := toArticleDetailResponse(article)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(res)
 }

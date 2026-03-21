@@ -78,3 +78,18 @@ func (s *ArticleService) ListMyArticles(ctx context.Context, authorID int64) ([]
 
 	return articles, nil
 }
+
+func (s *ArticleService) GetArticle(ctx context.Context, articleID int64) (model.Article, error) {
+	article, err := s.articleRepo.GetByID(ctx, articleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Article{}, ErrArticleNotFound
+	}
+	if err != nil {
+		return model.Article{}, err
+	}
+	if article.State != model.ArticleStatePublished {
+		return model.Article{}, ErrArticleNotFound
+	}
+
+	return article, nil
+}
