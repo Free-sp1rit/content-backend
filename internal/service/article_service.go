@@ -37,7 +37,7 @@ func (s *ArticleService) CreateArticle(ctx context.Context, authorID int64, titl
 
 func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentUserID int64) error {
 	article, err := s.articleRepo.GetByID(ctx, articleID)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return ErrArticleNotFound
 	}
 	if err != nil {
@@ -58,4 +58,23 @@ func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentU
 	}
 
 	return nil
+}
+
+func (s *ArticleService) ListPublishedArticles(ctx context.Context) ([]model.Article, error) {
+	articles, err := s.articleRepo.ListByState(ctx, model.ArticleStatePublished)
+	if err != nil {
+		return nil, err
+	}
+
+	return articles, nil
+}
+
+
+func (s *ArticleService) ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error) {
+	articles, err := s.articleRepo.ListByAuthorID(ctx, authorID)
+	if err != nil {
+		return nil, err
+	}
+
+	return articles, nil
 }

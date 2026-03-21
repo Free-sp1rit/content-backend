@@ -33,10 +33,13 @@ func main() {
 	articleService := service.NewArticleService(articleRepo)
 
 	authHandler := handler.NewAuthHandler(authService)
-	_ = articleService
+	articleHandler := handler.NewArticleHandler(articleService)
 
 	http.HandleFunc("/register", authHandler.Register)
 	http.HandleFunc("/login", authHandler.Login)
+	http.HandleFunc("/articles", articleHandler.Articles)
+	http.HandleFunc("/articles/publish", articleHandler.PublishArticle)
+	http.HandleFunc("/me/articles", articleHandler.ListMyArticles)
 
 	log.Println("server listening on :8080")
 	err = http.ListenAndServe(":8080", nil)
