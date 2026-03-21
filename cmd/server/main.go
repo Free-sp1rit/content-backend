@@ -3,6 +3,7 @@ package main
 import (
 	"content-backend/internal/auth"
 	"content-backend/internal/handler"
+	"content-backend/internal/middleware"
 	"content-backend/internal/repository"
 	"content-backend/internal/service"
 	"database/sql"
@@ -32,21 +33,42 @@ func main() {
 	articleRepo := repository.NewArticleRepository(db)
 
 	tokenManager := auth.NewTokenManager(
-    "dev-secret",
-    "content-backend",
-    24*time.Hour,
-)
+		"dev-secret",
+		"content-backend",
+		24*time.Hour,
+	)
+
 	authService := service.NewAuthService(userRepo, tokenManager)
 	articleService := service.NewArticleService(articleRepo)
+
+	authMiddleware := middleware.NewAuthMiddleware(tokenManager)
 
 	authHandler := handler.NewAuthHandler(authService)
 	articleHandler := handler.NewArticleHandler(articleService)
 
+	publicListArticlesHandler := http.HandlerFunc(articleHandler.ListPublishedArticles)
+	protectedCreateArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.CreateArticle))
+
 	http.HandleFunc("/register", authHandler.Register)
 	http.HandleFunc("/login", authHandler.Login)
-	http.HandleFunc("/articles", articleHandler.Articles)
-	http.HandleFunc("/articles/publish", articleHandler.PublishArticle)
-	http.HandleFunc("/me/articles", articleHandler.ListMyArticles)
+	http.HandleFunc("/articles", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			publicListArticlesHandler.ServeHTTP(w, r)
+		case http.MethodPost:
+			protectedCreateArticleHandler.ServeHTTP(w, r)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	})
+	http.Handle(
+		"/articles/publish",
+		authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.PublishArticle)),
+	)
+	http.Handle(
+		"/me/articles",
+		authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.ListMyArticles)),
+	)
 
 	log.Println("server listening on :8080")
 	err = http.ListenAndServe(":8080", nil)

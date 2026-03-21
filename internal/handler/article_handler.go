@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"content-backend/internal/middleware"
 	"content-backend/internal/service"
 	"encoding/json"
 	"errors"
@@ -15,21 +16,9 @@ func NewArticleHandler(articleService *service.ArticleService) *ArticleHandler {
 	return &ArticleHandler{articleService: articleService}
 }
 
-func (h *ArticleHandler) Articles(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodPost:
-		h.CreateArticle(w, r)
-	case http.MethodGet:
-		h.ListPublishedArticles(w, r)
-	default:
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
-}
-
 type CreateArticleRequest struct {
-	AuthorID int64 `json:"author_id"`
-	Title string `json:"title"`
-	Content string `json:"content"`
+	Title    string `json:"title"`
+	Content  string `json:"content"`
 }
 
 type CreateArticleResponse struct {
@@ -49,7 +38,14 @@ func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.articleService.CreateArticle(r.Context(), req.AuthorID, req.Title, req.Content)
+
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	id, err := h.articleService.CreateArticle(r.Context(), currentUserID, req.Title, req.Content)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -61,10 +57,8 @@ func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(res)
 }
 
-
 type PublishArticleRequest struct {
 	ArticleID int64 `json:"article_id"`
-	CurrentUserID int64 `json:"current_user_id"`
 }
 
 func (h *ArticleHandler) PublishArticle(w http.ResponseWriter, r *http.Request) {
@@ -80,14 +74,20 @@ func (h *ArticleHandler) PublishArticle(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	err = h.articleService.PublishArticle(r.Context(), req.ArticleID, req.CurrentUserID)
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	err = h.articleService.PublishArticle(r.Context(), req.ArticleID, currentUserID)
 	if err != nil {
 		if errors.Is(err, service.ErrArticleNotFound) {
 			w.WriteHeader(http.StatusNotFound)
 			return
 		}
 
-		if errors.Is(err ,service.ErrPermissionDenied) {
+		if errors.Is(err, service.ErrPermissionDenied) {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
@@ -98,7 +98,6 @@ func (h *ArticleHandler) PublishArticle(w http.ResponseWriter, r *http.Request) 
 
 	w.WriteHeader(http.StatusOK)
 }
-
 
 func (h *ArticleHandler) ListPublishedArticles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -113,13 +112,9 @@ func (h *ArticleHandler) ListPublishedArticles(w http.ResponseWriter, r *http.Re
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ =	json.NewEncoder(w).Encode(articles)
+	_ = json.NewEncoder(w).Encode(articles)
 }
 
-
-type ListMyArticlesRequest struct {
-	AuthorID int64 `json:"author_id"`
-} 
 
 func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -127,14 +122,18 @@ func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	var req ListMyArticlesRequest
-	json.NewDecoder(r.Body).Decode(&req)
-	articles, err := h.articleService.ListMyArticles(r.Context(), req.AuthorID)
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	articles, err := h.articleService.ListMyArticles(r.Context(), currentUserID)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ =	json.NewEncoder(w).Encode(articles)
+	_ = json.NewEncoder(w).Encode(articles)
 }
