@@ -1,12 +1,14 @@
 package main
 
 import (
+	"content-backend/internal/auth"
 	"content-backend/internal/handler"
 	"content-backend/internal/repository"
 	"content-backend/internal/service"
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -29,7 +31,12 @@ func main() {
 	userRepo := repository.NewUserRepository(db)
 	articleRepo := repository.NewArticleRepository(db)
 
-	authService := service.NewAuthService(userRepo)
+	tokenManager := auth.NewTokenManager(
+    "dev-secret",
+    "content-backend",
+    24*time.Hour,
+)
+	authService := service.NewAuthService(userRepo, tokenManager)
 	articleService := service.NewArticleService(articleRepo)
 
 	authHandler := handler.NewAuthHandler(authService)

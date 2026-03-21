@@ -5,8 +5,10 @@ import (
 	"database/sql"
 	"errors"
 
+	"content-backend/internal/auth"
 	"content-backend/internal/model"
 	"content-backend/internal/repository"
+
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -15,10 +17,11 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 
 type AuthService struct {
 	userRepo *repository.UserRepository
+	tokenManager *auth.TokenManager
 }
 
-func NewAuthService(userRepo *repository.UserRepository) *AuthService {
-	return &AuthService{userRepo: userRepo}
+func NewAuthService(userRepo *repository.UserRepository, tokenManager *auth.TokenManager) *AuthService {
+	return &AuthService{userRepo: userRepo, tokenManager: tokenManager}
 }
 
 func hashPassword(password string) (string, error) {
@@ -61,19 +64,23 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (int
 }
 
 
-func (s *AuthService) Login(ctx context.Context, email, password string) (int64, error) {
+func (s *AuthService) Login(ctx context.Context, email, password string) (string, error) {
 	user, err := s.userRepo.GetByEmail(ctx, email)
-	if err == sql.ErrNoRows {
-		return 0, ErrInvalidCredentials
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrInvalidCredentials
 	}
 	if err != nil {
-		return 0, err
+		return "", err
 	}
 
 	err = comparePassword(user.PasswordHash, password)
 	if err != nil {
-		return 0, ErrInvalidCredentials
+		return "", ErrInvalidCredentials
 	}
 
-	return user.ID, nil
+	token, err := s.tokenManager.Generate(user.ID)
+	if err != nil {
+		return "", err
+	}
+	return token, nil
 }

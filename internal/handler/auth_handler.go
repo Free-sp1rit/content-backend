@@ -63,7 +63,7 @@ type LoginRequest struct {
 }
 
 type LoginResponse struct {
-	ID int64 `json:"id"`
+	Token string `json:"token"`
 }
 
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
@@ -79,7 +79,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id, err := h.authService.Login(r.Context(), req.Email, req.Password)
+	token, err := h.authService.Login(r.Context(), req.Email, req.Password)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -89,7 +89,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res := LoginResponse{ID: id}
+	res := LoginResponse{Token: token}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

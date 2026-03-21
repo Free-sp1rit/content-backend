@@ -692,29 +692,4 @@ README / 运行说明
 
 11. 当前推荐的下一步（供模型直接接手）
 
-用户当前 repository 已暂时足够。
-后续模型应直接进入：
-
-service API 设计定稿
-
-建议先从这四个方法开始：
-
-AuthService
-
-Register
-
-Login
-
-ArticleService
-
-CreateArticle
-
-PublishArticle
-
-理由：
-
-这四个方法最能体现 service 的价值
-
-最快形成认证 + 内容写入 + 状态变更闭环
-
-最接近“初期产品”的核心能力
+review当前项目给出用户建议
