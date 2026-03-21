@@ -17,8 +17,8 @@ func NewArticleHandler(articleService *service.ArticleService) *ArticleHandler {
 }
 
 type CreateArticleRequest struct {
-	Title    string `json:"title"`
-	Content  string `json:"content"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
 }
 
 type CreateArticleResponse struct {
@@ -37,7 +37,6 @@ func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-
 
 	currentUserID, ok := middleware.UserIDFromContext(r.Context())
 	if !ok {
@@ -110,11 +109,13 @@ func (h *ArticleHandler) ListPublishedArticles(w http.ResponseWriter, r *http.Re
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	responses := toArticleResponses(articles)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(articles)
+	_ = json.NewEncoder(w).Encode(responses)
 }
-
 
 func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -133,7 +134,10 @@ func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) 
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+
+	responses := toArticleResponses(articles)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(articles)
+	_ = json.NewEncoder(w).Encode(responses)
 }
