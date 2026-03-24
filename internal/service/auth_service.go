@@ -16,7 +16,7 @@ var ErrEmailAlreadyRegistered = errors.New("email already registered")
 var ErrInvalidCredentials = errors.New("invalid credentials")
 
 type AuthService struct {
-	userRepo *repository.UserRepository
+	userRepo     *repository.UserRepository
 	tokenManager *auth.TokenManager
 }
 
@@ -62,7 +62,6 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (int
 
 	return id, nil
 }
-
 
 func (s *AuthService) Login(ctx context.Context, email, password string) (string, error) {
 	user, err := s.userRepo.GetByEmail(ctx, email)
