@@ -168,3 +168,55 @@ func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(res)
 }
+
+type UpdateArticleRequest struct {
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+func (h *ArticleHandler) UpdateArticle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPut {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	articleID, err := parseMyArticleID(r.URL.Path)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	var req UpdateArticleRequest
+	err = json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err = h.articleService.UpdateArticle(r.Context(), articleID, currentUserID, req.Title, req.Content)
+	if errors.Is(err, service.ErrArticleNotFound) {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	if errors.Is(err, service.ErrArticleNotEditable) {
+		w.WriteHeader(http.StatusConflict)
+		return
+	}
+	if errors.Is(err, service.ErrPermissionDenied) {
+		w.WriteHeader(http.StatusForbidden)
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	return
+}

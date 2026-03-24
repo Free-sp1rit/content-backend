@@ -11,6 +11,7 @@ import (
 
 var ErrArticleNotFound = errors.New("article not found")
 var ErrPermissionDenied = errors.New("permission denied")
+var ErrArticleNotEditable = errors.New("article not editable")
 
 type ArticleService struct {
 	articleRepo *repository.ArticleRepository
@@ -69,7 +70,6 @@ func (s *ArticleService) ListPublishedArticles(ctx context.Context) ([]model.Art
 	return articles, nil
 }
 
-
 func (s *ArticleService) ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error) {
 	articles, err := s.articleRepo.ListByAuthorID(ctx, authorID)
 	if err != nil {
@@ -92,4 +92,26 @@ func (s *ArticleService) GetArticle(ctx context.Context, articleID int64) (model
 	}
 
 	return article, nil
+}
+
+func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error {
+	article, err := s.articleRepo.GetByID(ctx, articleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrArticleNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if article.AuthorID != currentUserID {
+		return ErrPermissionDenied
+	}
+	if article.State != model.ArticleStateDraft {
+		return ErrArticleNotEditable
+	}
+
+	err = s.articleRepo.UpdateContent(ctx, articleID, title, content)
+	if err != nil {
+		return err
+	}
+	return nil
 }
