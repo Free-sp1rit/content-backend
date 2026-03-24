@@ -16,15 +16,6 @@ func NewArticleHandler(articleService *service.ArticleService) *ArticleHandler {
 	return &ArticleHandler{articleService: articleService}
 }
 
-type CreateArticleRequest struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
-}
-
-type CreateArticleResponse struct {
-	ID int64 `json:"id"`
-}
-
 func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -45,8 +36,7 @@ func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	id, err := h.articleService.CreateArticle(r.Context(), currentUserID, req.Title, req.Content)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
@@ -54,10 +44,6 @@ func (h *ArticleHandler) CreateArticle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	_ = json.NewEncoder(w).Encode(res)
-}
-
-type PublishArticleRequest struct {
-	ArticleID int64 `json:"article_id"`
 }
 
 func (h *ArticleHandler) PublishArticle(w http.ResponseWriter, r *http.Request) {
@@ -80,18 +66,7 @@ func (h *ArticleHandler) PublishArticle(w http.ResponseWriter, r *http.Request) 
 	}
 
 	err = h.articleService.PublishArticle(r.Context(), req.ArticleID, currentUserID)
-	if err != nil {
-		if errors.Is(err, service.ErrArticleNotFound) {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-
-		if errors.Is(err, service.ErrPermissionDenied) {
-			w.WriteHeader(http.StatusForbidden)
-			return
-		}
-
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
@@ -105,8 +80,7 @@ func (h *ArticleHandler) ListPublishedArticles(w http.ResponseWriter, r *http.Re
 	}
 
 	articles, err := h.articleService.ListPublishedArticles(r.Context())
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
@@ -130,8 +104,7 @@ func (h *ArticleHandler) ListMyArticles(w http.ResponseWriter, r *http.Request) 
 	}
 
 	articles, err := h.articleService.ListMyArticles(r.Context(), currentUserID)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
@@ -154,12 +127,7 @@ func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	article, err := h.articleService.GetArticle(r.Context(), id)
-	if errors.Is(err, service.ErrArticleNotFound) {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
@@ -167,11 +135,6 @@ func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(res)
-}
-
-type UpdateArticleRequest struct {
-	Title   string `json:"title"`
-	Content string `json:"content"`
 }
 
 func (h *ArticleHandler) UpdateArticle(w http.ResponseWriter, r *http.Request) {
@@ -187,7 +150,7 @@ func (h *ArticleHandler) UpdateArticle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	articleID, err := parseMyArticleID(r.URL.Path)
-	if err != nil {
+	if errors.Is(err, ErrInvalidArticleID) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -200,20 +163,7 @@ func (h *ArticleHandler) UpdateArticle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	err = h.articleService.UpdateArticle(r.Context(), articleID, currentUserID, req.Title, req.Content)
-	if errors.Is(err, service.ErrArticleNotFound) {
-		w.WriteHeader(http.StatusNotFound)
-		return
-	}
-	if errors.Is(err, service.ErrArticleNotEditable) {
-		w.WriteHeader(http.StatusConflict)
-		return
-	}
-	if errors.Is(err, service.ErrPermissionDenied) {
-		w.WriteHeader(http.StatusForbidden)
-		return
-	}
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
+	if writeArticleServiceError(w, err) {
 		return
 	}
 
