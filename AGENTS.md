@@ -26,6 +26,9 @@
 - 新增逻辑时优先补边界条件和可验证性
 - 设计接口时优先区分业务动作，不把不同职责混成一个入口
 
+## Git Naming Conventions
+- 使用Conventional Commits规范
+
 ## Collaboration Notes
 
 - 如果某项规则只属于个人学习节奏、本机习惯或临时实验，不应写在本文件中

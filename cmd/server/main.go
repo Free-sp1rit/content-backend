@@ -17,7 +17,7 @@ import (
 func main() {
 	db, err := sql.Open(
 		"postgres",
-		"host=localhost port=5432 user=postgres dbname=content_backend sslmode=disable",
+		"host=127.0.0.1 port=5432 user=content_dev password=devpass dbname=content_backend sslmode=disable",
 	)
 	if err != nil {
 		log.Fatal(err)
