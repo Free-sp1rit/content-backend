@@ -2,6 +2,7 @@ package main
 
 import (
 	"content-backend/internal/auth"
+	"content-backend/internal/config"
 	"content-backend/internal/handler"
 	"content-backend/internal/middleware"
 	"content-backend/internal/repository"
@@ -9,15 +10,18 @@ import (
 	"database/sql"
 	"log"
 	"net/http"
-	"time"
 
 	_ "github.com/lib/pq"
 )
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 	db, err := sql.Open(
 		"postgres",
-		"host=127.0.0.1 port=5432 user=content_dev password=devpass dbname=content_backend sslmode=disable",
+		cfg.Database.DSN(),
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -33,9 +37,9 @@ func main() {
 	articleRepo := repository.NewArticleRepository(db)
 
 	tokenManager := auth.NewTokenManager(
-		"dev-secret",
-		"content-backend",
-		24*time.Hour,
+		cfg.JWT.Secret,
+		cfg.JWT.Issuer,
+		cfg.JWT.TokenTTL,
 	)
 
 	authService := service.NewAuthService(userRepo, tokenManager)
@@ -75,8 +79,14 @@ func main() {
 	)
 	http.HandleFunc("/articles/{id}", articleHandler.GetArticle)
 
-	log.Println("server listening on :8080")
-	err = http.ListenAndServe(":8080", nil)
+	server := &http.Server{
+		Addr:              ":" + cfg.Server.Port,
+		Handler:           nil,
+		ReadHeaderTimeout: cfg.Server.ReadHeaderTimeout,
+	}
+
+	log.Printf("server listening on :%s", cfg.Server.Port)
+	err = server.ListenAndServe()
 	if err != nil {
 		log.Fatal(err)
 	}
