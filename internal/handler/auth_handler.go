@@ -1,17 +1,21 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
-
-	"content-backend/internal/service"
 )
 
-type AuthHandler struct {
-	authService *service.AuthService
+type authService interface {
+	Register(ctx context.Context, email, password string) (int64, error)
+	Login(ctx context.Context, email, password string) (string, error)
 }
 
-func NewAuthHandler(authService *service.AuthService) *AuthHandler {
+type AuthHandler struct {
+	authService authService
+}
+
+func NewAuthHandler(authService authService) *AuthHandler {
 	return &AuthHandler{authService: authService}
 }
 

@@ -6,18 +6,26 @@ import (
 	"errors"
 
 	"content-backend/internal/model"
-	"content-backend/internal/repository"
 )
 
 var ErrArticleNotFound = errors.New("article not found")
 var ErrPermissionDenied = errors.New("permission denied")
 var ErrArticleNotEditable = errors.New("article not editable")
 
-type ArticleService struct {
-	articleRepo *repository.ArticleRepository
+type articleRepository interface {
+	Create(ctx context.Context, article model.Article) (int64, error)
+	GetByID(ctx context.Context, id int64) (model.Article, error)
+	UpdateState(ctx context.Context, id int64, state string) error
+	ListByState(ctx context.Context, state string) ([]model.Article, error)
+	ListByAuthorID(ctx context.Context, authorID int64) ([]model.Article, error)
+	UpdateContent(ctx context.Context, id int64, title, content string) error
 }
 
-func NewArticleService(articleRepo *repository.ArticleRepository) *ArticleService {
+type ArticleService struct {
+	articleRepo articleRepository
+}
+
+func NewArticleService(articleRepo articleRepository) *ArticleService {
 	return &ArticleService{articleRepo: articleRepo}
 }
 
