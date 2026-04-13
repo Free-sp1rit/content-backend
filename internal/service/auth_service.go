@@ -5,9 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
-	"content-backend/internal/auth"
 	"content-backend/internal/model"
-	"content-backend/internal/repository"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -15,12 +13,21 @@ import (
 var ErrEmailAlreadyRegistered = errors.New("email already registered")
 var ErrInvalidCredentials = errors.New("invalid credentials")
 
-type AuthService struct {
-	userRepo     *repository.UserRepository
-	tokenManager *auth.TokenManager
+type userRepository interface {
+	GetByEmail(ctx context.Context, email string) (model.User, error)
+	Create(ctx context.Context, user model.User) (int64, error)
 }
 
-func NewAuthService(userRepo *repository.UserRepository, tokenManager *auth.TokenManager) *AuthService {
+type tokenGenerator interface {
+	Generate(userID int64) (string, error)
+}
+
+type AuthService struct {
+	userRepo     userRepository
+	tokenManager tokenGenerator
+}
+
+func NewAuthService(userRepo userRepository, tokenManager tokenGenerator) *AuthService {
 	return &AuthService{userRepo: userRepo, tokenManager: tokenManager}
 }
 

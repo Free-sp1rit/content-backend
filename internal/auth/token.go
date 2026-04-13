@@ -20,6 +20,7 @@ type TokenManager struct {
 	secret []byte
 	issuer string
 	ttl    time.Duration
+	now    func() time.Time
 }
 
 type Claims struct {
@@ -43,7 +44,16 @@ func NewTokenManager(secret, issuer string, ttl time.Duration) *TokenManager {
 		secret: []byte(secret),
 		issuer: issuer,
 		ttl:    ttl,
+		now:    time.Now,
 	}
+}
+
+func (m *TokenManager) currentTime() time.Time {
+	if m.now != nil {
+		return m.now()
+	}
+
+	return time.Now()
 }
 
 func (m *TokenManager) Generate(userID int64) (string, error) {
@@ -56,7 +66,7 @@ func (m *TokenManager) Generate(userID int64) (string, error) {
 		Typ: "JWT",
 	}
 
-	now := time.Now()
+	now := m.currentTime()
 	claims := Claims{
 		UserID:    userID,
 		Issuer:    m.issuer,
@@ -125,7 +135,7 @@ func (m *TokenManager) ValidateAndParse(token string) (Claims, error) {
 		return Claims{}, ErrInvalidToken
 	}
 
-	if claims.ExpiresAt <= time.Now().Unix() {
+	if claims.ExpiresAt <= m.currentTime().Unix() {
 		return Claims{}, ErrExpiredToken
 	}
 

@@ -7,42 +7,41 @@ import (
 	"time"
 )
 
-const(
-	defaultServerPort = "8080"
+const (
+	defaultServerPort    = "8080"
 	defaultReadHeaderTTL = 5 * time.Second
 
-	defaultDBHost = "127.0.0.1"
-	defaultDBPort = "5432"
+	defaultDBHost    = "127.0.0.1"
+	defaultDBPort    = "5432"
 	defaultDBSSLMode = "disable"
 
-	defaultJWTIssuer = "content-backend"
-	defaultJWTTokenTTL = 24 * time.Hour 
+	defaultJWTIssuer   = "content-backend"
+	defaultJWTTokenTTL = 24 * time.Hour
 )
 
 type Config struct {
-	Server ServerConfig
+	Server   ServerConfig
 	Database DatabaseConfig
-	JWT JWTConfig
+	JWT      JWTConfig
 }
 
-
 type ServerConfig struct {
-	Port string
+	Port              string
 	ReadHeaderTimeout time.Duration
 }
 
 type DatabaseConfig struct {
-	Host string
-	Port string
-	User string
+	Host     string
+	Port     string
+	User     string
 	Password string
-	Name string
-	SSLMode string
+	Name     string
+	SSLMode  string
 }
 
 type JWTConfig struct {
-	Secret string
-	Issuer string
+	Secret   string
+	Issuer   string
 	TokenTTL time.Duration
 }
 
@@ -53,16 +52,16 @@ func (c DatabaseConfig) DSN() string {
 func Load() (Config, error) {
 	cfg := Config{
 		Server: ServerConfig{
-			Port: defaultServerPort,
+			Port:              defaultServerPort,
 			ReadHeaderTimeout: defaultReadHeaderTTL,
 		},
 		Database: DatabaseConfig{
-			Host:	defaultDBHost,
-			Port: defaultDBPort,
+			Host:    defaultDBHost,
+			Port:    defaultDBPort,
 			SSLMode: defaultDBSSLMode,
 		},
 		JWT: JWTConfig{
-			Issuer: defaultJWTIssuer,
+			Issuer:   defaultJWTIssuer,
 			TokenTTL: defaultJWTTokenTTL,
 		},
 	}
@@ -74,7 +73,6 @@ func Load() (Config, error) {
 	}
 	cfg.Server.ReadHeaderTimeout = readHeaderTimeout
 
-
 	cfg.Database.Host = getEnv("DB_HOST", defaultDBHost)
 	cfg.Database.Port = getEnv("DB_PORT", defaultDBPort)
 	cfg.Database.User = getEnv("DB_USER", "")
@@ -85,7 +83,6 @@ func Load() (Config, error) {
 		return Config{}, errors.New("database config is incomplete")
 	}
 
-	
 	cfg.JWT.Secret = getEnv("JWT_SECRET", "")
 	cfg.JWT.Issuer = getEnv("JWT_ISSUER", defaultJWTIssuer)
 	JWTTokenTTL, err := getEnvDuration("JWT_TOKEN_TTL", defaultJWTTokenTTL)
@@ -100,7 +97,6 @@ func Load() (Config, error) {
 
 	return cfg, nil
 }
-
 
 func getEnv(key, defaultValue string) string {
 	if value := os.Getenv(key); value != "" {
@@ -120,4 +116,3 @@ func getEnvDuration(key string, defaultValue time.Duration) (time.Duration, erro
 	}
 	return defaultValue, nil
 }
-

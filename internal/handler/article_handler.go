@@ -2,17 +2,27 @@ package handler
 
 import (
 	"content-backend/internal/middleware"
-	"content-backend/internal/service"
+	"content-backend/internal/model"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 )
 
-type ArticleHandler struct {
-	articleService *service.ArticleService
+type articleService interface {
+	CreateArticle(ctx context.Context, authorID int64, title, content string) (int64, error)
+	PublishArticle(ctx context.Context, articleID, currentUserID int64) error
+	ListPublishedArticles(ctx context.Context) ([]model.Article, error)
+	ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error)
+	GetArticle(ctx context.Context, articleID int64) (model.Article, error)
+	UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error
 }
 
-func NewArticleHandler(articleService *service.ArticleService) *ArticleHandler {
+type ArticleHandler struct {
+	articleService articleService
+}
+
+func NewArticleHandler(articleService articleService) *ArticleHandler {
 	return &ArticleHandler{articleService: articleService}
 }
 
