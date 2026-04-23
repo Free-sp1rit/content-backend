@@ -1,3 +1,7 @@
 .gocache/
 .codex/
 .notes/
+.env
+.env.compose
+app.env
+db.env

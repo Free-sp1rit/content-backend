@@ -7,9 +7,11 @@ import (
 	"content-backend/internal/middleware"
 	"content-backend/internal/repository"
 	"content-backend/internal/service"
+	"context"
 	"database/sql"
 	"log"
 	"net/http"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -53,6 +55,29 @@ func main() {
 	publicListArticlesHandler := http.HandlerFunc(articleHandler.ListPublishedArticles)
 	protectedCreateArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.CreateArticle))
 
+	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead:
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), time.Second)
+		defer cancel()
+
+		err := db.PingContext(ctx)
+		if err != nil {
+			http.Error(w, "unhealthy", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		if r.Method != http.MethodHead {
+			_, _ = w.Write([]byte("ok"))
+		}
+	})
 	http.HandleFunc("/register", authHandler.Register)
 	http.HandleFunc("/login", authHandler.Login)
 	http.HandleFunc("/articles", func(w http.ResponseWriter, r *http.Request) {

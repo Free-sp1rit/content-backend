@@ -43,6 +43,7 @@
 
 - Go 1.22.5
 - PostgreSQL
+- Docker / Docker Compose（如果使用 Compose 方式运行）
 
 ## Database Setup
 
@@ -106,6 +107,90 @@ go run ./cmd/server
 http://127.0.0.1:8080
 ```
 
+## Docker Compose
+
+项目提供了最小可用的 Compose 运行配置，用于同时启动应用和 PostgreSQL。
+
+首次使用时，可以先基于示例文件准备本地 Compose 配置：
+
+```bash
+cp .env.compose.example .env.compose
+cp app.env.example app.env
+cp db.env.example db.env
+```
+
+其中：
+
+- `.env.compose` 负责 Compose 自己的参数，例如宿主机暴露端口
+- `app.env` 负责应用容器运行时环境变量
+- `db.env` 负责 PostgreSQL 容器运行时环境变量
+- `nginx` 作为对外入口，负责把宿主机请求转发到内部 `app` 服务
+
+然后启动整套服务：
+
+```bash
+docker compose --env-file .env.compose up --build
+```
+
+如果希望后台运行：
+
+```bash
+docker compose --env-file .env.compose up --build -d
+```
+
+Compose 环境默认也会暴露：
+
+```text
+http://127.0.0.1:8080
+```
+
+如果本机 `8080` 已被占用，可以只修改 `.env.compose` 中的 `APP_PORT`，例如：
+
+```text
+APP_PORT=18080
+```
+
+这时宿主机访问地址会变成：
+
+```text
+http://127.0.0.1:18080
+```
+
+常用命令：
+
+```bash
+docker compose ps
+docker compose logs nginx --tail=50
+docker compose logs app --tail=50
+docker compose logs db --tail=50
+docker compose down
+docker compose down -v
+```
+
+应用还提供了一个最小健康检查接口：
+
+```bash
+curl http://127.0.0.1:8080/healthz
+```
+
+如果应用和数据库都可用，返回：
+
+```text
+ok
+```
+
+当前 Compose 链路是：
+
+```text
+host -> nginx -> app -> db
+```
+
+其中：
+
+- `nginx` 负责对外暴露端口
+- `app` 只在 Compose 内部网络中提供 `8080`
+- `db` 只在 Compose 内部网络中提供 PostgreSQL 服务
+
 ## Test
 
 ```bash
@@ -143,10 +228,17 @@ Authorization: Bearer <token>
 
 ## Current Status
 
-当前项目仍处在 MVP 阶段，已经具备核心内容发布链路，并已支持基于环境变量的启动配置。
+当前项目仍处在 MVP 阶段，已经具备核心内容发布链路、单元测试基线、最小 CI，以及基于 Docker Compose 的本地/自用部署基础。
 
-当前仍未系统补齐：
+当前已经支持：
 
-- 自动化测试
-- 更完整的配置工程化能力
-- 更细致的错误响应与运行保护能力
+- 基于环境变量的启动配置
+- `nginx -> app -> db` 的 Compose 运行链路
+- 应用健康检查 `/healthz`
+- PostgreSQL 数据持久化
+
+后续可继续补充：
+
+- 远端服务器部署流程
+- HTTPS / 域名入口
+- 更完整的日志、备份和发布策略
