@@ -122,6 +122,7 @@ cp db.env.example db.env
 其中：
 
 - `.env.compose` 负责 Compose 自己的参数，例如宿主机暴露端口
+- `.env.compose` 也可以配置构建阶段使用的 Go module proxy，例如 `GOPROXY`
 - `app.env` 负责应用容器运行时环境变量
 - `db.env` 负责 PostgreSQL 容器运行时环境变量
 - `nginx` 作为对外入口，负责把宿主机请求转发到内部 `app` 服务
