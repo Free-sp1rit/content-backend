@@ -16,6 +16,8 @@ services:
   app:
     build:
       context: .
+      args:
+        GOPROXY: ${GOPROXY:-https://goproxy.cn,direct}
     image: content-backend:local
     restart: unless-stopped
     depends_on:
