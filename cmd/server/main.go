@@ -13,6 +13,8 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/redis/go-redis/v9"
+
 	_ "github.com/lib/pq"
 )
 
@@ -35,6 +37,21 @@ func main() {
 		log.Fatal(err)
 	}
 
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:     cfg.Redis.Addr,
+		Password: cfg.Redis.Password,
+		DB:       cfg.Redis.DB,
+	})
+	defer redisClient.Close()
+
+	redisPingCtx, redisPingCancel := context.WithTimeout(context.Background(), time.Second)
+	defer redisPingCancel()
+	if err := redisClient.Ping(redisPingCtx).Err(); err != nil {
+		log.Printf("redis unavailable: %v", err)
+	} else {
+		log.Printf("redis connected: %s", cfg.Redis.Addr)
+	}
+
 	userRepo := repository.NewUserRepository(db)
 	articleRepo := repository.NewArticleRepository(db)
 
@@ -45,7 +62,7 @@ func main() {
 	)
 
 	authService := service.NewAuthService(userRepo, tokenManager)
-	articleService := service.NewArticleService(articleRepo)
+	articleService := service.NewArticleServiceWithCache(articleRepo, service.NewRedisCache(redisClient))
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenManager)
 

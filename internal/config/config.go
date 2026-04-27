@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -17,12 +18,16 @@ const (
 
 	defaultJWTIssuer   = "content-backend"
 	defaultJWTTokenTTL = 24 * time.Hour
+
+	defaultRedisAddr = "127.0.0.1:6379"
+	defaultRedisDB   = 0
 )
 
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
 	JWT      JWTConfig
+	Redis    RedisConfig
 }
 
 type ServerConfig struct {
@@ -45,6 +50,12 @@ type JWTConfig struct {
 	TokenTTL time.Duration
 }
 
+type RedisConfig struct {
+	Addr     string
+	Password string
+	DB       int
+}
+
 func (c DatabaseConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode)
 }
@@ -63,6 +74,10 @@ func Load() (Config, error) {
 		JWT: JWTConfig{
 			Issuer:   defaultJWTIssuer,
 			TokenTTL: defaultJWTTokenTTL,
+		},
+		Redis: RedisConfig{
+			Addr: defaultRedisAddr,
+			DB:   defaultRedisDB,
 		},
 	}
 
@@ -95,6 +110,14 @@ func Load() (Config, error) {
 		return Config{}, errors.New("JWT_SECRET is required")
 	}
 
+	cfg.Redis.Addr = getEnv("REDIS_ADDR", defaultRedisAddr)
+	cfg.Redis.Password = getEnv("REDIS_PASSWORD", "")
+	redisDB, err := getEnvInt("REDIS_DB", defaultRedisDB)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.Redis.DB = redisDB
+
 	return cfg, nil
 }
 
@@ -113,6 +136,17 @@ func getEnvDuration(key string, defaultValue time.Duration) (time.Duration, erro
 			return 0, fmt.Errorf("parse %s: %w", key, err)
 		}
 		return d, nil
+	}
+	return defaultValue, nil
+}
+
+func getEnvInt(key string, defaultValue int) (int, error) {
+	if value := os.Getenv(key); value != "" {
+		i, err := strconv.Atoi(value)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", key, err)
+		}
+		return i, nil
 	}
 	return defaultValue, nil
 }
