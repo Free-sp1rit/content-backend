@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"log"
+	"time"
 
 	"content-backend/internal/model"
 )
@@ -21,12 +24,26 @@ type articleRepository interface {
 	UpdateContent(ctx context.Context, id int64, title, content string) error
 }
 
+type articleCache interface {
+	Get(ctx context.Context, key string) (string, error)
+	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	Delete(ctx context.Context, key string) error
+}
+
 type ArticleService struct {
 	articleRepo articleRepository
+	cache       articleCache
 }
 
 func NewArticleService(articleRepo articleRepository) *ArticleService {
 	return &ArticleService{articleRepo: articleRepo}
+}
+
+func NewArticleServiceWithCache(articleRepo articleRepository, cache articleCache) *ArticleService {
+	return &ArticleService{
+		articleRepo: articleRepo,
+		cache:       cache,
+	}
 }
 
 func (s *ArticleService) CreateArticle(ctx context.Context, authorID int64, title, content string) (int64, error) {
@@ -66,13 +83,29 @@ func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentU
 		return err
 	}
 
+	s.deletePublishedArticlesCache(ctx)
+
 	return nil
 }
 
 func (s *ArticleService) ListPublishedArticles(ctx context.Context) ([]model.Article, error) {
+	if s.cache != nil {
+		cachedArticles, ok := s.getPublishedArticlesFromCache(ctx)
+		if ok {
+			return cachedArticles, nil
+		}
+	}
+
 	articles, err := s.articleRepo.ListByState(ctx, model.ArticleStatePublished)
 	if err != nil {
 		return nil, err
+	}
+	if articles == nil {
+		articles = []model.Article{}
+	}
+
+	if s.cache != nil {
+		s.setPublishedArticlesCache(ctx, articles)
 	}
 
 	return articles, nil
@@ -122,4 +155,54 @@ func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUs
 		return err
 	}
 	return nil
+}
+
+const publishedArticlesCacheKey = "articles:published"
+
+const publishedArticlesCacheTTL = 5 * time.Minute
+
+func (s *ArticleService) getPublishedArticlesFromCache(ctx context.Context) ([]model.Article, bool) {
+	value, err := s.cache.Get(ctx, publishedArticlesCacheKey)
+	if err != nil {
+		return nil, false
+	}
+	if value == "" {
+		return nil, false
+	}
+
+	var articles []model.Article
+	err = json.Unmarshal([]byte(value), &articles)
+	if err != nil {
+		log.Printf("decode published articles cache: %v", err)
+		return nil, false
+	}
+	if articles == nil {
+		articles = []model.Article{}
+	}
+
+	return articles, true
+}
+
+func (s *ArticleService) setPublishedArticlesCache(ctx context.Context, articles []model.Article) {
+	data, err := json.Marshal(articles)
+	if err != nil {
+		log.Printf("encode published articles cache: %v", err)
+		return
+	}
+
+	err = s.cache.Set(ctx, publishedArticlesCacheKey, string(data), publishedArticlesCacheTTL)
+	if err != nil {
+		log.Printf("set published articles cache: %v", err)
+	}
+}
+
+func (s *ArticleService) deletePublishedArticlesCache(ctx context.Context) {
+	if s.cache == nil {
+		return
+	}
+
+	err := s.cache.Delete(ctx, publishedArticlesCacheKey)
+	if err != nil {
+		log.Printf("delete published articles cache: %v", err)
+	}
 }

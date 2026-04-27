@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"content-backend/internal/model"
 )
@@ -16,6 +18,33 @@ type fakeArticleRepo struct {
 	listByStateFunc    func(ctx context.Context, state string) ([]model.Article, error)
 	listByAuthorIDFunc func(ctx context.Context, authorID int64) ([]model.Article, error)
 	updateContentFunc  func(ctx context.Context, id int64, title, content string) error
+}
+
+type fakeArticleCache struct {
+	getFunc    func(ctx context.Context, key string) (string, error)
+	setFunc    func(ctx context.Context, key string, value string, ttl time.Duration) error
+	deleteFunc func(ctx context.Context, key string) error
+}
+
+func (c *fakeArticleCache) Get(ctx context.Context, key string) (string, error) {
+	if c.getFunc != nil {
+		return c.getFunc(ctx, key)
+	}
+	panic("unexpected call to Get")
+}
+
+func (c *fakeArticleCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+	if c.setFunc != nil {
+		return c.setFunc(ctx, key, value, ttl)
+	}
+	panic("unexpected call to Set")
+}
+
+func (c *fakeArticleCache) Delete(ctx context.Context, key string) error {
+	if c.deleteFunc != nil {
+		return c.deleteFunc(ctx, key)
+	}
+	panic("unexpected call to Delete")
 }
 
 func (r *fakeArticleRepo) Create(ctx context.Context, article model.Article) (int64, error) {
@@ -147,6 +176,7 @@ func TestArticleService_PublishArticle(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		updateCalled := false
+		deleteCacheCalled := false
 		repo := &fakeArticleRepo{
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{ID: id, AuthorID: 10, State: model.ArticleStateDraft}, nil
@@ -162,8 +192,17 @@ func TestArticleService_PublishArticle(t *testing.T) {
 				return nil
 			},
 		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				deleteCacheCalled = true
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return nil
+			},
+		}
 
-		service := NewArticleService(repo)
+		service := NewArticleServiceWithCache(repo, cache)
 
 		err := service.PublishArticle(context.Background(), 1, 10)
 		if err != nil {
@@ -172,33 +211,166 @@ func TestArticleService_PublishArticle(t *testing.T) {
 		if !updateCalled {
 			t.Fatal("expected UpdateState to be called")
 		}
+		if !deleteCacheCalled {
+			t.Fatal("expected cache Delete to be called")
+		}
 	})
 }
 
 func TestArticleService_ListPublishedArticles(t *testing.T) {
-	wantArticles := []model.Article{
-		{ID: 1, Title: "a", State: model.ArticleStatePublished},
-		{ID: 2, Title: "b", State: model.ArticleStatePublished},
-	}
+	t.Run("without cache", func(t *testing.T) {
+		wantArticles := []model.Article{
+			{ID: 1, Title: "a", State: model.ArticleStatePublished},
+			{ID: 2, Title: "b", State: model.ArticleStatePublished},
+		}
 
-	repo := &fakeArticleRepo{
-		listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
-			if state != model.ArticleStatePublished {
-				t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
-			}
-			return wantArticles, nil
-		},
-	}
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				if state != model.ArticleStatePublished {
+					t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
+				}
+				return wantArticles, nil
+			},
+		}
 
-	service := NewArticleService(repo)
+		service := NewArticleService(repo)
 
-	gotArticles, err := service.ListPublishedArticles(context.Background())
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(gotArticles) != len(wantArticles) {
-		t.Fatalf("got %d articles, want %d", len(gotArticles), len(wantArticles))
-	}
+		gotArticles, err := service.ListPublishedArticles(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(gotArticles) != len(wantArticles) {
+			t.Fatalf("got %d articles, want %d", len(gotArticles), len(wantArticles))
+		}
+	})
+
+	t.Run("cache hit", func(t *testing.T) {
+		wantArticles := []model.Article{
+			{ID: 1, Title: "cached", State: model.ArticleStatePublished},
+		}
+		cachedData, err := json.Marshal(wantArticles)
+		if err != nil {
+			t.Fatalf("marshal cached articles: %v", err)
+		}
+		cache := &fakeArticleCache{
+			getFunc: func(ctx context.Context, key string) (string, error) {
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return string(cachedData), nil
+			},
+		}
+		repo := &fakeArticleRepo{}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		gotArticles, err := service.ListPublishedArticles(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(gotArticles) != len(wantArticles) {
+			t.Fatalf("got %d articles, want %d", len(gotArticles), len(wantArticles))
+		}
+		if gotArticles[0].Title != wantArticles[0].Title {
+			t.Fatalf("got title %q, want %q", gotArticles[0].Title, wantArticles[0].Title)
+		}
+	})
+
+	t.Run("cache miss stores repository result", func(t *testing.T) {
+		wantArticles := []model.Article{
+			{ID: 1, Title: "a", State: model.ArticleStatePublished},
+			{ID: 2, Title: "b", State: model.ArticleStatePublished},
+		}
+		setCalled := false
+		cache := &fakeArticleCache{
+			getFunc: func(ctx context.Context, key string) (string, error) {
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return "", nil
+			},
+			setFunc: func(ctx context.Context, key string, value string, ttl time.Duration) error {
+				setCalled = true
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				if ttl != publishedArticlesCacheTTL {
+					t.Fatalf("got ttl %v, want %v", ttl, publishedArticlesCacheTTL)
+				}
+
+				var gotArticles []model.Article
+				err := json.Unmarshal([]byte(value), &gotArticles)
+				if err != nil {
+					t.Fatalf("unmarshal cached value: %v", err)
+				}
+				if len(gotArticles) != len(wantArticles) {
+					t.Fatalf("got %d cached articles, want %d", len(gotArticles), len(wantArticles))
+				}
+				return nil
+			},
+		}
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				if state != model.ArticleStatePublished {
+					t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
+				}
+				return wantArticles, nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		gotArticles, err := service.ListPublishedArticles(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(gotArticles) != len(wantArticles) {
+			t.Fatalf("got %d articles, want %d", len(gotArticles), len(wantArticles))
+		}
+		if !setCalled {
+			t.Fatal("expected cache Set to be called")
+		}
+	})
+
+	t.Run("cache miss stores empty list as json array", func(t *testing.T) {
+		setCalled := false
+		cache := &fakeArticleCache{
+			getFunc: func(ctx context.Context, key string) (string, error) {
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return "", nil
+			},
+			setFunc: func(ctx context.Context, key string, value string, ttl time.Duration) error {
+				setCalled = true
+				if value != "[]" {
+					t.Fatalf("got cached value %q, want []", value)
+				}
+				return nil
+			},
+		}
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				return nil, nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		gotArticles, err := service.ListPublishedArticles(context.Background())
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticles == nil {
+			t.Fatal("expected empty article slice, got nil")
+		}
+		if len(gotArticles) != 0 {
+			t.Fatalf("got %d articles, want 0", len(gotArticles))
+		}
+		if !setCalled {
+			t.Fatal("expected cache Set to be called")
+		}
+	})
 }
 
 func TestArticleService_ListMyArticles(t *testing.T) {

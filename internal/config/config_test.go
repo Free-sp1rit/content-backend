@@ -68,6 +68,16 @@ func TestLoad(t *testing.T) {
 		if cfg.JWT.TokenTTL != defaultJWTTokenTTL {
 			t.Fatalf("got jwt token ttl %v, want %v", cfg.JWT.TokenTTL, defaultJWTTokenTTL)
 		}
+
+		if cfg.Redis.Addr != defaultRedisAddr {
+			t.Fatalf("got redis addr %q, want %q", cfg.Redis.Addr, defaultRedisAddr)
+		}
+		if cfg.Redis.Password != "" {
+			t.Fatalf("got redis password %q, want empty", cfg.Redis.Password)
+		}
+		if cfg.Redis.DB != defaultRedisDB {
+			t.Fatalf("got redis db %d, want %d", cfg.Redis.DB, defaultRedisDB)
+		}
 	})
 
 	t.Run("uses explicit env overrides", func(t *testing.T) {
@@ -79,6 +89,9 @@ func TestLoad(t *testing.T) {
 		t.Setenv("DB_SSLMODE", "require")
 		t.Setenv("JWT_ISSUER", "custom-issuer")
 		t.Setenv("JWT_TOKEN_TTL", "36h")
+		t.Setenv("REDIS_ADDR", "redis:6379")
+		t.Setenv("REDIS_PASSWORD", "redis-pass")
+		t.Setenv("REDIS_DB", "2")
 
 		cfg, err := Load()
 		if err != nil {
@@ -107,6 +120,16 @@ func TestLoad(t *testing.T) {
 		}
 		if cfg.JWT.TokenTTL != 36*time.Hour {
 			t.Fatalf("got jwt token ttl %v, want %v", cfg.JWT.TokenTTL, 36*time.Hour)
+		}
+
+		if cfg.Redis.Addr != "redis:6379" {
+			t.Fatalf("got redis addr %q, want %q", cfg.Redis.Addr, "redis:6379")
+		}
+		if cfg.Redis.Password != "redis-pass" {
+			t.Fatalf("got redis password %q, want %q", cfg.Redis.Password, "redis-pass")
+		}
+		if cfg.Redis.DB != 2 {
+			t.Fatalf("got redis db %d, want %d", cfg.Redis.DB, 2)
 		}
 	})
 
@@ -153,6 +176,14 @@ func TestLoad(t *testing.T) {
 
 		_, err := Load()
 		assertErrContains(t, err, "parse JWT_TOKEN_TTL")
+	})
+
+	t.Run("invalid redis db", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("REDIS_DB", "not-an-int")
+
+		_, err := Load()
+		assertErrContains(t, err, "parse REDIS_DB")
 	})
 }
 
