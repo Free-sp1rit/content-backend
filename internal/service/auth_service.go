@@ -32,9 +32,10 @@ type loginRateLimiter interface {
 }
 
 type AuthService struct {
-	userRepo     userRepository
-	tokenManager tokenGenerator
-	loginLimiter loginRateLimiter
+	userRepo          userRepository
+	tokenManager      tokenGenerator
+	emailLoginLimiter loginRateLimiter
+	ipLoginLimiter    loginRateLimiter
 }
 
 func NewAuthService(userRepo userRepository, tokenManager tokenGenerator) *AuthService {
@@ -42,10 +43,15 @@ func NewAuthService(userRepo userRepository, tokenManager tokenGenerator) *AuthS
 }
 
 func NewAuthServiceWithLoginLimiter(userRepo userRepository, tokenManager tokenGenerator, loginLimiter loginRateLimiter) *AuthService {
+	return NewAuthServiceWithLoginLimiters(userRepo, tokenManager, loginLimiter, nil)
+}
+
+func NewAuthServiceWithLoginLimiters(userRepo userRepository, tokenManager tokenGenerator, emailLoginLimiter, ipLoginLimiter loginRateLimiter) *AuthService {
 	return &AuthService{
-		userRepo:     userRepo,
-		tokenManager: tokenManager,
-		loginLimiter: loginLimiter,
+		userRepo:          userRepo,
+		tokenManager:      tokenManager,
+		emailLoginLimiter: emailLoginLimiter,
+		ipLoginLimiter:    ipLoginLimiter,
 	}
 }
 
@@ -88,20 +94,20 @@ func (s *AuthService) Register(ctx context.Context, email, password string) (int
 	return id, nil
 }
 
-func (s *AuthService) Login(ctx context.Context, email, password string) (string, error) {
-	limiterKey := loginRateLimitKey(email)
-	if s.loginLimiter != nil {
-		tooManyAttempts, err := s.loginLimiter.TooManyAttempts(ctx, limiterKey)
-		if err != nil {
-			log.Printf("check login rate limit: %v", err)
-		} else if tooManyAttempts {
-			return "", ErrLoginRateLimited
-		}
+func (s *AuthService) Login(ctx context.Context, email, password, clientIP string) (string, error) {
+	emailLimiterKey := loginRateLimitKey(email)
+	ipLimiterKey := loginIPRateLimitKey(clientIP)
+
+	if s.tooManyLoginAttempts(ctx, s.emailLoginLimiter, emailLimiterKey) {
+		return "", ErrLoginRateLimited
+	}
+	if ipLimiterKey != "" && s.tooManyLoginAttempts(ctx, s.ipLoginLimiter, ipLimiterKey) {
+		return "", ErrLoginRateLimited
 	}
 
 	user, err := s.userRepo.GetByEmail(ctx, email)
 	if errors.Is(err, sql.ErrNoRows) {
-		s.recordLoginFailure(ctx, limiterKey)
+		s.recordLoginFailures(ctx, emailLimiterKey, ipLimiterKey)
 		return "", ErrInvalidCredentials
 	}
 	if err != nil {
@@ -110,11 +116,11 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 
 	err = comparePassword(user.PasswordHash, password)
 	if err != nil {
-		s.recordLoginFailure(ctx, limiterKey)
+		s.recordLoginFailures(ctx, emailLimiterKey, ipLimiterKey)
 		return "", ErrInvalidCredentials
 	}
 
-	s.resetLoginLimiter(ctx, limiterKey)
+	s.resetLoginLimiter(ctx, s.emailLoginLimiter, emailLimiterKey)
 
 	token, err := s.tokenManager.Generate(user.ID)
 	if err != nil {
@@ -123,29 +129,60 @@ func (s *AuthService) Login(ctx context.Context, email, password string) (string
 	return token, nil
 }
 
-const loginRateLimitKeyPrefix = "login:failures:"
+const loginRateLimitKeyPrefix = "login:failures:email:"
+
+const loginIPRateLimitKeyPrefix = "login:failures:ip:"
 
 func loginRateLimitKey(email string) string {
 	return loginRateLimitKeyPrefix + strings.ToLower(strings.TrimSpace(email))
 }
 
-func (s *AuthService) recordLoginFailure(ctx context.Context, key string) {
-	if s.loginLimiter == nil {
+func loginIPRateLimitKey(clientIP string) string {
+	clientIP = strings.TrimSpace(clientIP)
+	if clientIP == "" {
+		return ""
+	}
+
+	return loginIPRateLimitKeyPrefix + clientIP
+}
+
+func (s *AuthService) tooManyLoginAttempts(ctx context.Context, limiter loginRateLimiter, key string) bool {
+	if limiter == nil {
+		return false
+	}
+
+	tooManyAttempts, err := limiter.TooManyAttempts(ctx, key)
+	if err != nil {
+		log.Printf("check login rate limit: %v", err)
+		return false
+	}
+	return tooManyAttempts
+}
+
+func (s *AuthService) recordLoginFailures(ctx context.Context, emailKey, ipKey string) {
+	s.recordLoginFailure(ctx, s.emailLoginLimiter, emailKey)
+	if ipKey != "" {
+		s.recordLoginFailure(ctx, s.ipLoginLimiter, ipKey)
+	}
+}
+
+func (s *AuthService) recordLoginFailure(ctx context.Context, limiter loginRateLimiter, key string) {
+	if limiter == nil {
 		return
 	}
 
-	err := s.loginLimiter.RecordFailure(ctx, key)
+	err := limiter.RecordFailure(ctx, key)
 	if err != nil {
 		log.Printf("record login failure: %v", err)
 	}
 }
 
-func (s *AuthService) resetLoginLimiter(ctx context.Context, key string) {
-	if s.loginLimiter == nil {
+func (s *AuthService) resetLoginLimiter(ctx context.Context, limiter loginRateLimiter, key string) {
+	if limiter == nil {
 		return
 	}
 
-	err := s.loginLimiter.Reset(ctx, key)
+	err := limiter.Reset(ctx, key)
 	if err != nil {
 		log.Printf("reset login limiter: %v", err)
 	}

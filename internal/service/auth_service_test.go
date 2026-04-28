@@ -183,7 +183,31 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthServiceWithLoginLimiter(&fakeUserRepo{}, &fakeTokenGenerator{}, limiter)
 
-		_, err := service.Login(context.Background(), "User@Example.COM", "secret")
+		_, err := service.Login(context.Background(), "User@Example.COM", "secret", "")
+		assertErrIs(t, err, ErrLoginRateLimited)
+	})
+
+	t.Run("ip rate limited", func(t *testing.T) {
+		emailLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got email limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return false, nil
+			},
+		}
+		ipLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				if key != loginIPRateLimitKeyPrefix+"192.0.2.1" {
+					t.Fatalf("got ip limiter key %q, want %q", key, loginIPRateLimitKeyPrefix+"192.0.2.1")
+				}
+				return true, nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiters(&fakeUserRepo{}, &fakeTokenGenerator{}, emailLimiter, ipLimiter)
+
+		_, err := service.Login(context.Background(), "user@example.com", "secret", "192.0.2.1")
 		assertErrIs(t, err, ErrLoginRateLimited)
 	})
 
@@ -209,7 +233,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthServiceWithLoginLimiter(repo, tokenGen, limiter)
 
-		token, err := service.Login(context.Background(), "user@example.com", "secret")
+		token, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -227,7 +251,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthService(repo, &fakeTokenGenerator{})
 
-		_, err := service.Login(context.Background(), "user@example.com", "secret")
+		_, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		assertErrIs(t, err, ErrInvalidCredentials)
 	})
 
@@ -253,7 +277,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthServiceWithLoginLimiter(repo, &fakeTokenGenerator{}, limiter)
 
-		_, err := service.Login(context.Background(), "user@example.com", "secret")
+		_, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		assertErrIs(t, err, ErrInvalidCredentials)
 		if !recordFailureCalled {
 			t.Fatal("expected RecordFailure to be called")
@@ -270,7 +294,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthService(repo, &fakeTokenGenerator{})
 
-		_, err := service.Login(context.Background(), "user@example.com", "secret")
+		_, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		assertErrIs(t, err, wantErr)
 	})
 
@@ -283,7 +307,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthService(repo, &fakeTokenGenerator{})
 
-		_, err := service.Login(context.Background(), "user@example.com", "wrong-password")
+		_, err := service.Login(context.Background(), "user@example.com", "wrong-password", "")
 		assertErrIs(t, err, ErrInvalidCredentials)
 	})
 
@@ -309,10 +333,55 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthServiceWithLoginLimiter(repo, &fakeTokenGenerator{}, limiter)
 
-		_, err := service.Login(context.Background(), "user@example.com", "wrong-password")
+		_, err := service.Login(context.Background(), "user@example.com", "wrong-password", "")
 		assertErrIs(t, err, ErrInvalidCredentials)
 		if !recordFailureCalled {
 			t.Fatal("expected RecordFailure to be called")
+		}
+	})
+
+	t.Run("invalid password records email and ip failures", func(t *testing.T) {
+		emailFailureCalled := false
+		ipFailureCalled := false
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{ID: 7, Email: email, PasswordHash: passwordHash}, nil
+			},
+		}
+		emailLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			recordFailureFunc: func(ctx context.Context, key string) error {
+				emailFailureCalled = true
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got email limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return nil
+			},
+		}
+		ipLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			recordFailureFunc: func(ctx context.Context, key string) error {
+				ipFailureCalled = true
+				if key != loginIPRateLimitKeyPrefix+"192.0.2.1" {
+					t.Fatalf("got ip limiter key %q, want %q", key, loginIPRateLimitKeyPrefix+"192.0.2.1")
+				}
+				return nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiters(repo, &fakeTokenGenerator{}, emailLimiter, ipLimiter)
+
+		_, err := service.Login(context.Background(), "user@example.com", "wrong-password", "192.0.2.1")
+		assertErrIs(t, err, ErrInvalidCredentials)
+		if !emailFailureCalled {
+			t.Fatal("expected email RecordFailure to be called")
+		}
+		if !ipFailureCalled {
+			t.Fatal("expected ip RecordFailure to be called")
 		}
 	})
 
@@ -334,7 +403,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthService(repo, tokenGen)
 
-		_, err := service.Login(context.Background(), "user@example.com", "secret")
+		_, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		assertErrIs(t, err, wantErr)
 	})
 
@@ -360,7 +429,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthService(repo, tokenGen)
 
-		token, err := service.Login(context.Background(), "user@example.com", "secret")
+		token, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -399,7 +468,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		service := NewAuthServiceWithLoginLimiter(repo, tokenGen, limiter)
 
-		token, err := service.Login(context.Background(), "user@example.com", "secret")
+		token, err := service.Login(context.Background(), "user@example.com", "secret", "")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -408,6 +477,47 @@ func TestAuthService_Login(t *testing.T) {
 		}
 		if !resetCalled {
 			t.Fatal("expected Reset to be called")
+		}
+	})
+
+	t.Run("success resets email limiter but keeps ip failure count", func(t *testing.T) {
+		emailResetCalled := false
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{ID: 7, Email: email, PasswordHash: passwordHash}, nil
+			},
+		}
+		tokenGen := &fakeTokenGenerator{
+			generateFunc: func(userID int64) (string, error) {
+				return "test-token", nil
+			},
+		}
+		emailLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			resetFunc: func(ctx context.Context, key string) error {
+				emailResetCalled = true
+				return nil
+			},
+		}
+		ipLimiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiters(repo, tokenGen, emailLimiter, ipLimiter)
+
+		token, err := service.Login(context.Background(), "user@example.com", "secret", "192.0.2.1")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "test-token" {
+			t.Fatalf("got token %q, want %q", token, "test-token")
+		}
+		if !emailResetCalled {
+			t.Fatal("expected email Reset to be called")
 		}
 	})
 }

@@ -9,7 +9,9 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const defaultLoginMaxFailures int64 = 5
+const defaultLoginEmailMaxFailures int64 = 5
+
+const defaultLoginIPMaxFailures int64 = 20
 
 const defaultLoginFailureWindow = 10 * time.Minute
 
@@ -28,10 +30,18 @@ type RedisLoginLimiter struct {
 }
 
 func NewRedisLoginLimiter(client *redis.Client) *RedisLoginLimiter {
+	return NewRedisLoginLimiterWithOptions(client, defaultLoginEmailMaxFailures, defaultLoginFailureWindow)
+}
+
+func NewRedisLoginIPLimiter(client *redis.Client) *RedisLoginLimiter {
+	return NewRedisLoginLimiterWithOptions(client, defaultLoginIPMaxFailures, defaultLoginFailureWindow)
+}
+
+func NewRedisLoginLimiterWithOptions(client *redis.Client, maxFailures int64, window time.Duration) *RedisLoginLimiter {
 	return &RedisLoginLimiter{
 		client:      client,
-		maxFailures: defaultLoginMaxFailures,
-		window:      defaultLoginFailureWindow,
+		maxFailures: maxFailures,
+		window:      window,
 	}
 }
 

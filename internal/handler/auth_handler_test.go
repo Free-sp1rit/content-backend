@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"content-backend/internal/service"
@@ -11,7 +13,7 @@ import (
 
 type fakeAuthService struct {
 	registerFunc func(ctx context.Context, email, password string) (int64, error)
-	loginFunc    func(ctx context.Context, email, password string) (string, error)
+	loginFunc    func(ctx context.Context, email, password, clientIP string) (string, error)
 }
 
 func (s *fakeAuthService) Register(ctx context.Context, email, password string) (int64, error) {
@@ -21,9 +23,9 @@ func (s *fakeAuthService) Register(ctx context.Context, email, password string) 
 	panic("unexpected call to Register")
 }
 
-func (s *fakeAuthService) Login(ctx context.Context, email, password string) (string, error) {
+func (s *fakeAuthService) Login(ctx context.Context, email, password, clientIP string) (string, error) {
 	if s.loginFunc != nil {
-		return s.loginFunc(ctx, email, password)
+		return s.loginFunc(ctx, email, password, clientIP)
 	}
 	panic("unexpected call to Login")
 }
@@ -165,7 +167,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			called := false
 			svc := &fakeAuthService{
-				loginFunc: func(ctx context.Context, email, password string) (string, error) {
+				loginFunc: func(ctx context.Context, email, password, clientIP string) (string, error) {
 					called = true
 					return "", tc.serviceErr
 				},
@@ -191,13 +193,16 @@ func TestAuthHandler_Login(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		called := false
 		svc := &fakeAuthService{
-			loginFunc: func(ctx context.Context, email, password string) (string, error) {
+			loginFunc: func(ctx context.Context, email, password, clientIP string) (string, error) {
 				called = true
 				if email != "user@example.com" {
 					t.Fatalf("got email %q, want %q", email, "user@example.com")
 				}
 				if password != "secret" {
 					t.Fatalf("got password %q, want %q", password, "secret")
+				}
+				if clientIP != "192.0.2.1" {
+					t.Fatalf("got client ip %q, want %q", clientIP, "192.0.2.1")
 				}
 				return "test-token", nil
 			},
@@ -223,6 +228,27 @@ func TestAuthHandler_Login(t *testing.T) {
 		decodeJSONResponse(t, rec.Body, &res)
 		if res.Token != "test-token" {
 			t.Fatalf("got token %q, want %q", res.Token, "test-token")
+		}
+	})
+
+	t.Run("client ip without port", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(`{"email":"user@example.com","password":"secret"}`))
+		req.RemoteAddr = "203.0.113.10"
+		rec := httptest.NewRecorder()
+		svc := &fakeAuthService{
+			loginFunc: func(ctx context.Context, email, password, clientIP string) (string, error) {
+				if clientIP != "203.0.113.10" {
+					t.Fatalf("got client ip %q, want %q", clientIP, "203.0.113.10")
+				}
+				return "test-token", nil
+			},
+		}
+		handler := NewAuthHandler(svc)
+
+		handler.Login(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
 		}
 	})
 }
