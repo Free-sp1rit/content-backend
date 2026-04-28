@@ -156,6 +156,7 @@ func TestAuthHandler_Login(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "invalid credentials", serviceErr: service.ErrInvalidCredentials, wantStatus: http.StatusUnauthorized},
+		{name: "rate limited", serviceErr: service.ErrLoginRateLimited, wantStatus: http.StatusTooManyRequests},
 		{name: "internal error", serviceErr: errors.New("login failed"), wantStatus: http.StatusInternalServerError},
 	}
 

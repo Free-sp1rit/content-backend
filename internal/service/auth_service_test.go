@@ -42,6 +42,33 @@ func (g *fakeTokenGenerator) Generate(userID int64) (string, error) {
 	panic("unexpected call to Generate")
 }
 
+type fakeLoginRateLimiter struct {
+	tooManyAttemptsFunc func(ctx context.Context, key string) (bool, error)
+	recordFailureFunc   func(ctx context.Context, key string) error
+	resetFunc           func(ctx context.Context, key string) error
+}
+
+func (l *fakeLoginRateLimiter) TooManyAttempts(ctx context.Context, key string) (bool, error) {
+	if l.tooManyAttemptsFunc != nil {
+		return l.tooManyAttemptsFunc(ctx, key)
+	}
+	panic("unexpected call to TooManyAttempts")
+}
+
+func (l *fakeLoginRateLimiter) RecordFailure(ctx context.Context, key string) error {
+	if l.recordFailureFunc != nil {
+		return l.recordFailureFunc(ctx, key)
+	}
+	panic("unexpected call to RecordFailure")
+}
+
+func (l *fakeLoginRateLimiter) Reset(ctx context.Context, key string) error {
+	if l.resetFunc != nil {
+		return l.resetFunc(ctx, key)
+	}
+	panic("unexpected call to Reset")
+}
+
 func TestAuthService_Register(t *testing.T) {
 	t.Run("email already registered", func(t *testing.T) {
 		repo := &fakeUserRepo{
@@ -144,6 +171,53 @@ func TestAuthService_Register(t *testing.T) {
 func TestAuthService_Login(t *testing.T) {
 	passwordHash := mustHashPassword(t, "secret")
 
+	t.Run("rate limited", func(t *testing.T) {
+		limiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return true, nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiter(&fakeUserRepo{}, &fakeTokenGenerator{}, limiter)
+
+		_, err := service.Login(context.Background(), "User@Example.COM", "secret")
+		assertErrIs(t, err, ErrLoginRateLimited)
+	})
+
+	t.Run("limiter check error does not block login", func(t *testing.T) {
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{ID: 7, Email: email, PasswordHash: passwordHash}, nil
+			},
+		}
+		tokenGen := &fakeTokenGenerator{
+			generateFunc: func(userID int64) (string, error) {
+				return "test-token", nil
+			},
+		}
+		limiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, errors.New("redis unavailable")
+			},
+			resetFunc: func(ctx context.Context, key string) error {
+				return nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiter(repo, tokenGen, limiter)
+
+		token, err := service.Login(context.Background(), "user@example.com", "secret")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "test-token" {
+			t.Fatalf("got token %q, want %q", token, "test-token")
+		}
+	})
+
 	t.Run("user not found", func(t *testing.T) {
 		repo := &fakeUserRepo{
 			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
@@ -155,6 +229,35 @@ func TestAuthService_Login(t *testing.T) {
 
 		_, err := service.Login(context.Background(), "user@example.com", "secret")
 		assertErrIs(t, err, ErrInvalidCredentials)
+	})
+
+	t.Run("user not found records failure", func(t *testing.T) {
+		recordFailureCalled := false
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{}, sql.ErrNoRows
+			},
+		}
+		limiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			recordFailureFunc: func(ctx context.Context, key string) error {
+				recordFailureCalled = true
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiter(repo, &fakeTokenGenerator{}, limiter)
+
+		_, err := service.Login(context.Background(), "user@example.com", "secret")
+		assertErrIs(t, err, ErrInvalidCredentials)
+		if !recordFailureCalled {
+			t.Fatal("expected RecordFailure to be called")
+		}
 	})
 
 	t.Run("lookup error", func(t *testing.T) {
@@ -182,6 +285,35 @@ func TestAuthService_Login(t *testing.T) {
 
 		_, err := service.Login(context.Background(), "user@example.com", "wrong-password")
 		assertErrIs(t, err, ErrInvalidCredentials)
+	})
+
+	t.Run("invalid password records failure", func(t *testing.T) {
+		recordFailureCalled := false
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{ID: 7, Email: email, PasswordHash: passwordHash}, nil
+			},
+		}
+		limiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			recordFailureFunc: func(ctx context.Context, key string) error {
+				recordFailureCalled = true
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiter(repo, &fakeTokenGenerator{}, limiter)
+
+		_, err := service.Login(context.Background(), "user@example.com", "wrong-password")
+		assertErrIs(t, err, ErrInvalidCredentials)
+		if !recordFailureCalled {
+			t.Fatal("expected RecordFailure to be called")
+		}
 	})
 
 	t.Run("token generation error", func(t *testing.T) {
@@ -237,6 +369,45 @@ func TestAuthService_Login(t *testing.T) {
 		}
 		if !generateCalled {
 			t.Fatal("expected Generate to be called")
+		}
+	})
+
+	t.Run("success resets limiter", func(t *testing.T) {
+		resetCalled := false
+		repo := &fakeUserRepo{
+			getByEmailFunc: func(ctx context.Context, email string) (model.User, error) {
+				return model.User{ID: 7, Email: email, PasswordHash: passwordHash}, nil
+			},
+		}
+		tokenGen := &fakeTokenGenerator{
+			generateFunc: func(userID int64) (string, error) {
+				return "test-token", nil
+			},
+		}
+		limiter := &fakeLoginRateLimiter{
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+				return false, nil
+			},
+			resetFunc: func(ctx context.Context, key string) error {
+				resetCalled = true
+				if key != loginRateLimitKeyPrefix+"user@example.com" {
+					t.Fatalf("got limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
+				}
+				return nil
+			},
+		}
+
+		service := NewAuthServiceWithLoginLimiter(repo, tokenGen, limiter)
+
+		token, err := service.Login(context.Background(), "user@example.com", "secret")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if token != "test-token" {
+			t.Fatalf("got token %q, want %q", token, "test-token")
+		}
+		if !resetCalled {
+			t.Fatal("expected Reset to be called")
 		}
 	})
 }
