@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -369,6 +371,116 @@ func TestArticleService_ListPublishedArticles(t *testing.T) {
 		}
 		if !setCalled {
 			t.Fatal("expected cache Set to be called")
+		}
+	})
+
+	t.Run("concurrent cache misses share repository call", func(t *testing.T) {
+		const requestCount = 20
+
+		wantArticles := []model.Article{
+			{ID: 1, Title: "shared", State: model.ArticleStatePublished},
+		}
+		repoStarted := make(chan struct{})
+		releaseRepo := make(chan struct{})
+		var repoStartedOnce sync.Once
+		var repoCallCount atomic.Int32
+
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				repoCallCount.Add(1)
+				repoStartedOnce.Do(func() {
+					close(repoStarted)
+				})
+				<-releaseRepo
+				return wantArticles, nil
+			},
+		}
+
+		var cacheMu sync.Mutex
+		var getCallCount atomic.Int32
+		cachedValue := ""
+		initialGetsReady := make(chan struct{})
+		releaseInitialGets := make(chan struct{})
+		cache := &fakeArticleCache{
+			getFunc: func(ctx context.Context, key string) (string, error) {
+				getNumber := getCallCount.Add(1)
+				if getNumber <= requestCount {
+					if getNumber == requestCount {
+						close(initialGetsReady)
+					}
+					<-releaseInitialGets
+				}
+
+				cacheMu.Lock()
+				defer cacheMu.Unlock()
+				return cachedValue, nil
+			},
+			setFunc: func(ctx context.Context, key string, value string, ttl time.Duration) error {
+				cacheMu.Lock()
+				defer cacheMu.Unlock()
+				cachedValue = value
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		start := make(chan struct{})
+		ready := make(chan struct{})
+		errCh := make(chan error, requestCount)
+		var readyCount atomic.Int32
+		var wg sync.WaitGroup
+
+		for i := 0; i < requestCount; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				if readyCount.Add(1) == requestCount {
+					close(ready)
+				}
+				<-start
+
+				gotArticles, err := service.ListPublishedArticles(context.Background())
+				if err != nil {
+					errCh <- err
+					return
+				}
+				if len(gotArticles) != len(wantArticles) {
+					errCh <- errors.New("unexpected article count")
+				}
+			}()
+		}
+
+		<-ready
+		close(start)
+
+		select {
+		case <-initialGetsReady:
+		case <-time.After(time.Second):
+			close(releaseInitialGets)
+			close(releaseRepo)
+			t.Fatal("timed out waiting for initial cache misses")
+		}
+		close(releaseInitialGets)
+
+		select {
+		case <-repoStarted:
+		case <-time.After(time.Second):
+			close(releaseRepo)
+			t.Fatal("timed out waiting for repository call")
+		}
+
+		close(releaseRepo)
+		wg.Wait()
+		close(errCh)
+
+		for err := range errCh {
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		}
+		if repoCallCount.Load() != 1 {
+			t.Fatalf("got repository calls %d, want 1", repoCallCount.Load())
 		}
 	})
 }
