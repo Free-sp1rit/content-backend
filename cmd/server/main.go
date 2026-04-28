@@ -61,7 +61,11 @@ func main() {
 		cfg.JWT.TokenTTL,
 	)
 
-	authService := service.NewAuthService(userRepo, tokenManager)
+	authService := service.NewAuthServiceWithLoginLimiter(
+		userRepo,
+		tokenManager,
+		service.NewRedisLoginLimiter(redisClient),
+	)
 	articleService := service.NewArticleServiceWithCache(articleRepo, service.NewRedisCache(redisClient))
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenManager)

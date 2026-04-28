@@ -3,6 +3,7 @@ module content-backend
 go 1.22.5
 
 require (
+	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/lib/pq v1.10.9
 	github.com/redis/go-redis/v9 v9.18.0
 	golang.org/x/crypto v0.33.0

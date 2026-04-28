@@ -12,6 +12,8 @@ func statusFromAuthServiceError(err error) (int, bool) {
 		return http.StatusConflict, true
 	case errors.Is(err, service.ErrInvalidCredentials):
 		return http.StatusUnauthorized, true
+	case errors.Is(err, service.ErrLoginRateLimited):
+		return http.StatusTooManyRequests, true
 	default:
 		return 0, false
 	}
