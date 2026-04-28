@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"content-backend/internal/model"
+
+	"golang.org/x/sync/singleflight"
 )
 
 var ErrArticleNotFound = errors.New("article not found")
@@ -31,8 +33,9 @@ type articleCache interface {
 }
 
 type ArticleService struct {
-	articleRepo articleRepository
-	cache       articleCache
+	articleRepo            articleRepository
+	cache                  articleCache
+	publishedArticlesGroup singleflight.Group
 }
 
 func NewArticleService(articleRepo articleRepository) *ArticleService {
@@ -96,6 +99,29 @@ func (s *ArticleService) ListPublishedArticles(ctx context.Context) ([]model.Art
 		}
 	}
 
+	result, err, _ := s.publishedArticlesGroup.Do(publishedArticlesCacheKey, func() (any, error) {
+		if s.cache != nil {
+			cachedArticles, ok := s.getPublishedArticlesFromCache(ctx)
+			if ok {
+				return cachedArticles, nil
+			}
+		}
+
+		return s.listPublishedArticlesFromRepository(ctx)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	articles, ok := result.([]model.Article)
+	if !ok {
+		return nil, errors.New("unexpected published articles result type")
+	}
+
+	return articles, nil
+}
+
+func (s *ArticleService) listPublishedArticlesFromRepository(ctx context.Context) ([]model.Article, error) {
 	articles, err := s.articleRepo.ListByState(ctx, model.ArticleStatePublished)
 	if err != nil {
 		return nil, err
