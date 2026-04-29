@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/netip"
+	"strings"
 )
 
 type authService interface {
@@ -71,10 +73,65 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 }
 
 func clientIPFromRequest(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	remoteIP := clientIPFromRemoteAddr(r.RemoteAddr)
+	if trustedProxyIP(remoteIP) {
+		if forwardedIP := firstForwardedIP(r.Header.Get("X-Forwarded-For")); forwardedIP != "" {
+			return forwardedIP
+		}
+		if realIP := normalizedIP(r.Header.Get("X-Real-IP")); realIP != "" {
+			return realIP
+		}
+	}
+
+	return remoteIP
+}
+
+func clientIPFromRemoteAddr(remoteAddr string) string {
+	host, _, err := net.SplitHostPort(remoteAddr)
 	if err == nil {
+		if ip := normalizedIP(host); ip != "" {
+			return ip
+		}
 		return host
 	}
 
-	return r.RemoteAddr
+	if ip := normalizedIP(remoteAddr); ip != "" {
+		return ip
+	}
+
+	return remoteAddr
+}
+
+func firstForwardedIP(header string) string {
+	for _, part := range strings.Split(header, ",") {
+		if ip := normalizedIP(part); ip != "" {
+			return ip
+		}
+	}
+
+	return ""
+}
+
+func trustedProxyIP(ip string) bool {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+
+	addr = addr.Unmap()
+	return addr.IsLoopback() || addr.IsPrivate()
+}
+
+func normalizedIP(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return ""
+	}
+
+	return addr.Unmap().String()
 }
