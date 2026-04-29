@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 路线图
+    url: https://github.com/Free-sp1rit/content-backend/blob/main/ROADMAP.md
+    about: 新建宽泛规划类 issue 前，先查看当前阶段路线。

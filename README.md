@@ -17,8 +17,10 @@
 
 - Go
 - PostgreSQL
+- Redis
 - 标准库 `net/http`
 - `github.com/lib/pq`
+- `github.com/redis/go-redis/v9`
 
 ## Project Structure
 
@@ -38,11 +40,14 @@
   环境变量配置加载
 - `migrations`
   数据库初始化 SQL
+- `docs`
+  架构、部署、Redis 和 issue 草稿等项目上下文
 
 ## Requirements
 
 - Go 1.22.5
 - PostgreSQL
+- Redis（如果不使用 Compose，需要本地或远端 Redis）
 - Docker / Docker Compose（如果使用 Compose 方式运行）
 
 ## Database Setup
@@ -76,6 +81,12 @@ psql -U <your_user> -d <your_database> -f migrations/001_init.sql
 - `JWT_SECRET`
 - `JWT_ISSUER`
 - `JWT_TOKEN_TTL`
+- `REDIS_ADDR`
+- `REDIS_PASSWORD`
+- `REDIS_DB`
+- `LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES`
+- `LOGIN_RATE_LIMIT_IP_MAX_FAILURES`
+- `LOGIN_RATE_LIMIT_WINDOW`
 
 如果你只是本地开发，可以先在终端里临时导出这些变量：
 
@@ -93,6 +104,14 @@ export DB_SSLMODE=disable
 export JWT_SECRET=dev-secret
 export JWT_ISSUER=content-backend
 export JWT_TOKEN_TTL=24h
+
+export REDIS_ADDR=localhost:6379
+export REDIS_PASSWORD=
+export REDIS_DB=0
+
+export LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES=5
+export LOGIN_RATE_LIMIT_IP_MAX_FAILURES=20
+export LOGIN_RATE_LIMIT_WINDOW=10m
 ```
 
 ## Run
@@ -109,7 +128,7 @@ http://127.0.0.1:8080
 
 ## Docker Compose
 
-项目提供了最小可用的 Compose 运行配置，用于同时启动应用和 PostgreSQL。
+项目提供了最小可用的 Compose 运行配置，用于同时启动 nginx、应用、PostgreSQL 和 Redis。
 
 首次使用时，可以先基于示例文件准备本地 Compose 配置：
 
@@ -126,6 +145,7 @@ cp db.env.example db.env
 - `app.env` 负责应用容器运行时环境变量
 - `db.env` 负责 PostgreSQL 容器运行时环境变量
 - `nginx` 作为对外入口，负责把宿主机请求转发到内部 `app` 服务
+- `redis` 负责登录失败限流、公开文章列表缓存和缓存击穿保护的运行态数据
 
 然后启动整套服务：
 
@@ -164,6 +184,7 @@ docker compose ps
 docker compose logs nginx --tail=50
 docker compose logs app --tail=50
 docker compose logs db --tail=50
+docker compose logs redis --tail=50
 docker compose down
 docker compose down -v
 ```
@@ -180,10 +201,13 @@ curl http://127.0.0.1:8080/healthz
 ok
 ```
 
+当前 `/healthz` 检查应用和 PostgreSQL；Redis 可通过 Compose healthcheck 和登录限流/公开列表 smoke 验证覆盖。
+
 当前 Compose 链路是：
 
 ```text
-host -> nginx -> app -> db
+host -> nginx -> app -> PostgreSQL
+                 -> Redis
 ```
 
 其中：
@@ -191,6 +215,17 @@ host -> nginx -> app -> db
 - `nginx` 负责对外暴露端口
 - `app` 只在 Compose 内部网络中提供 `8080`
 - `db` 只在 Compose 内部网络中提供 PostgreSQL 服务
+- `redis` 只在 Compose 内部网络中提供 Redis 服务
+
+部署或更新后的最小 smoke 验证应覆盖：
+
+- `/healthz`
+- 公开文章列表
+- 注册
+- 登录
+- 创建文章
+- 发布文章
+- 再次查询公开文章列表，确认新发布文章可见
 
 ## Test
 
@@ -229,17 +264,29 @@ Authorization: Bearer <token>
 
 ## Current Status
 
-当前项目仍处在 MVP 阶段，已经具备核心内容发布链路、单元测试基线、最小 CI，以及基于 Docker Compose 的本地/自用部署基础。
+当前项目已经完成第一版 MVP 闭环，进入 Post-MVP Alpha 阶段。下一阶段重点是部署成熟化、Redis 运行边界、并发一致性和最小 Web 验收。
 
 当前已经支持：
 
 - 基于环境变量的启动配置
-- `nginx -> app -> db` 的 Compose 运行链路
+- `nginx -> app -> PostgreSQL/Redis` 的 Compose 运行链路
 - 应用健康检查 `/healthz`
 - PostgreSQL 数据持久化
+- Redis 登录失败 email/IP 限流
+- 公开文章列表 Redis 缓存和 singleflight 防击穿
+- 登录限流 `Retry-After` 响应和可配置阈值
 
-后续可继续补充：
+Alpha 阶段后续优先补充：
 
-- 远端服务器部署流程
-- HTTPS / 域名入口
-- 更完整的日志、备份和发布策略
+- README、部署文档和 smoke 验证脚本继续对齐
+- Redis 场景的集成验证和失败边界说明
+- 文章发布/编辑并发安全加固
+- PostgreSQL / Redis 可复现集成验证
+- 最小 Web 前端验收界面
+
+## Project Guidance
+
+- 仓库级长期规则见 [`AGENTS.md`](./AGENTS.md)。
+- 架构、部署和 Redis 解释性上下文见 [`docs/`](./docs)。
+- 可复制到 GitHub 的任务草稿见 [`docs/issues/`](./docs/issues)。
+- GitHub 新建 Issue 模板见 [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE)。
