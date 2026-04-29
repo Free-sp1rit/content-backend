@@ -64,8 +64,16 @@ func main() {
 	authService := service.NewAuthServiceWithLoginLimiters(
 		userRepo,
 		tokenManager,
-		service.NewRedisLoginLimiter(redisClient),
-		service.NewRedisLoginIPLimiter(redisClient),
+		service.NewRedisLoginLimiterWithOptions(
+			redisClient,
+			cfg.LoginRateLimit.EmailMaxFailures,
+			cfg.LoginRateLimit.Window,
+		),
+		service.NewRedisLoginLimiterWithOptions(
+			redisClient,
+			cfg.LoginRateLimit.IPMaxFailures,
+			cfg.LoginRateLimit.Window,
+		),
 	)
 	articleService := service.NewArticleServiceWithCache(articleRepo, service.NewRedisCache(redisClient))
 

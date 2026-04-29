@@ -78,6 +78,16 @@ func TestLoad(t *testing.T) {
 		if cfg.Redis.DB != defaultRedisDB {
 			t.Fatalf("got redis db %d, want %d", cfg.Redis.DB, defaultRedisDB)
 		}
+
+		if cfg.LoginRateLimit.EmailMaxFailures != defaultLoginRateLimitEmailMaxFailures {
+			t.Fatalf("got login email max failures %d, want %d", cfg.LoginRateLimit.EmailMaxFailures, defaultLoginRateLimitEmailMaxFailures)
+		}
+		if cfg.LoginRateLimit.IPMaxFailures != defaultLoginRateLimitIPMaxFailures {
+			t.Fatalf("got login ip max failures %d, want %d", cfg.LoginRateLimit.IPMaxFailures, defaultLoginRateLimitIPMaxFailures)
+		}
+		if cfg.LoginRateLimit.Window != defaultLoginRateLimitWindow {
+			t.Fatalf("got login rate limit window %v, want %v", cfg.LoginRateLimit.Window, defaultLoginRateLimitWindow)
+		}
 	})
 
 	t.Run("uses explicit env overrides", func(t *testing.T) {
@@ -92,6 +102,9 @@ func TestLoad(t *testing.T) {
 		t.Setenv("REDIS_ADDR", "redis:6379")
 		t.Setenv("REDIS_PASSWORD", "redis-pass")
 		t.Setenv("REDIS_DB", "2")
+		t.Setenv("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "7")
+		t.Setenv("LOGIN_RATE_LIMIT_IP_MAX_FAILURES", "30")
+		t.Setenv("LOGIN_RATE_LIMIT_WINDOW", "15m")
 
 		cfg, err := Load()
 		if err != nil {
@@ -130,6 +143,16 @@ func TestLoad(t *testing.T) {
 		}
 		if cfg.Redis.DB != 2 {
 			t.Fatalf("got redis db %d, want %d", cfg.Redis.DB, 2)
+		}
+
+		if cfg.LoginRateLimit.EmailMaxFailures != 7 {
+			t.Fatalf("got login email max failures %d, want %d", cfg.LoginRateLimit.EmailMaxFailures, int64(7))
+		}
+		if cfg.LoginRateLimit.IPMaxFailures != 30 {
+			t.Fatalf("got login ip max failures %d, want %d", cfg.LoginRateLimit.IPMaxFailures, int64(30))
+		}
+		if cfg.LoginRateLimit.Window != 15*time.Minute {
+			t.Fatalf("got login rate limit window %v, want %v", cfg.LoginRateLimit.Window, 15*time.Minute)
 		}
 	})
 
@@ -184,6 +207,38 @@ func TestLoad(t *testing.T) {
 
 		_, err := Load()
 		assertErrContains(t, err, "parse REDIS_DB")
+	})
+
+	t.Run("invalid login email max failures", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", "not-an-int")
+
+		_, err := Load()
+		assertErrContains(t, err, "parse LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES")
+	})
+
+	t.Run("non-positive login ip max failures", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("LOGIN_RATE_LIMIT_IP_MAX_FAILURES", "0")
+
+		_, err := Load()
+		assertErrContains(t, err, "LOGIN_RATE_LIMIT_IP_MAX_FAILURES must be positive")
+	})
+
+	t.Run("invalid login rate limit window", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("LOGIN_RATE_LIMIT_WINDOW", "not-a-duration")
+
+		_, err := Load()
+		assertErrContains(t, err, "parse LOGIN_RATE_LIMIT_WINDOW")
+	})
+
+	t.Run("non-positive login rate limit window", func(t *testing.T) {
+		setRequiredEnv(t)
+		t.Setenv("LOGIN_RATE_LIMIT_WINDOW", "0s")
+
+		_, err := Load()
+		assertErrContains(t, err, "LOGIN_RATE_LIMIT_WINDOW must be positive")
 	})
 }
 

@@ -21,13 +21,18 @@ const (
 
 	defaultRedisAddr = "127.0.0.1:6379"
 	defaultRedisDB   = 0
+
+	defaultLoginRateLimitEmailMaxFailures int64 = 5
+	defaultLoginRateLimitIPMaxFailures    int64 = 20
+	defaultLoginRateLimitWindow                 = 10 * time.Minute
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	JWT      JWTConfig
-	Redis    RedisConfig
+	Server         ServerConfig
+	Database       DatabaseConfig
+	JWT            JWTConfig
+	Redis          RedisConfig
+	LoginRateLimit LoginRateLimitConfig
 }
 
 type ServerConfig struct {
@@ -56,6 +61,12 @@ type RedisConfig struct {
 	DB       int
 }
 
+type LoginRateLimitConfig struct {
+	EmailMaxFailures int64
+	IPMaxFailures    int64
+	Window           time.Duration
+}
+
 func (c DatabaseConfig) DSN() string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s", c.Host, c.Port, c.User, c.Password, c.Name, c.SSLMode)
 }
@@ -78,6 +89,11 @@ func Load() (Config, error) {
 		Redis: RedisConfig{
 			Addr: defaultRedisAddr,
 			DB:   defaultRedisDB,
+		},
+		LoginRateLimit: LoginRateLimitConfig{
+			EmailMaxFailures: defaultLoginRateLimitEmailMaxFailures,
+			IPMaxFailures:    defaultLoginRateLimitIPMaxFailures,
+			Window:           defaultLoginRateLimitWindow,
 		},
 	}
 
@@ -118,6 +134,24 @@ func Load() (Config, error) {
 	}
 	cfg.Redis.DB = redisDB
 
+	loginEmailMaxFailures, err := getEnvPositiveInt64("LOGIN_RATE_LIMIT_EMAIL_MAX_FAILURES", defaultLoginRateLimitEmailMaxFailures)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LoginRateLimit.EmailMaxFailures = loginEmailMaxFailures
+
+	loginIPMaxFailures, err := getEnvPositiveInt64("LOGIN_RATE_LIMIT_IP_MAX_FAILURES", defaultLoginRateLimitIPMaxFailures)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LoginRateLimit.IPMaxFailures = loginIPMaxFailures
+
+	loginRateLimitWindow, err := getEnvPositiveDuration("LOGIN_RATE_LIMIT_WINDOW", defaultLoginRateLimitWindow)
+	if err != nil {
+		return Config{}, err
+	}
+	cfg.LoginRateLimit.Window = loginRateLimitWindow
+
 	return cfg, nil
 }
 
@@ -140,11 +174,36 @@ func getEnvDuration(key string, defaultValue time.Duration) (time.Duration, erro
 	return defaultValue, nil
 }
 
+func getEnvPositiveDuration(key string, defaultValue time.Duration) (time.Duration, error) {
+	d, err := getEnvDuration(key, defaultValue)
+	if err != nil {
+		return 0, err
+	}
+	if d <= 0 {
+		return 0, fmt.Errorf("%s must be positive", key)
+	}
+	return d, nil
+}
+
 func getEnvInt(key string, defaultValue int) (int, error) {
 	if value := os.Getenv(key); value != "" {
 		i, err := strconv.Atoi(value)
 		if err != nil {
 			return 0, fmt.Errorf("parse %s: %w", key, err)
+		}
+		return i, nil
+	}
+	return defaultValue, nil
+}
+
+func getEnvPositiveInt64(key string, defaultValue int64) (int64, error) {
+	if value := os.Getenv(key); value != "" {
+		i, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("parse %s: %w", key, err)
+		}
+		if i <= 0 {
+			return 0, fmt.Errorf("%s must be positive", key)
 		}
 		return i, nil
 	}
