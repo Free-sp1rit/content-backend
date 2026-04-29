@@ -288,5 +288,5 @@ Alpha 阶段后续优先补充：
 
 - 仓库级长期规则见 [`AGENTS.md`](./AGENTS.md)。
 - 架构、部署和 Redis 解释性上下文见 [`docs/`](./docs)。
-- 可复制到 GitHub 的任务草稿见 [`docs/issues/`](./docs/issues)。
+- AGENT 使用的任务草稿见 [`docs/issues/`](./docs/issues)。
 - GitHub 新建 Issue 模板见 [`.github/ISSUE_TEMPLATE/`](./.github/ISSUE_TEMPLATE)。
