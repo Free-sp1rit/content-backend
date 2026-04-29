@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log"
 	"strings"
+	"time"
 
 	"content-backend/internal/model"
 
@@ -15,6 +16,26 @@ import (
 var ErrEmailAlreadyRegistered = errors.New("email already registered")
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrLoginRateLimited = errors.New("login rate limited")
+
+type LoginRateLimitedError struct {
+	RetryAfter time.Duration
+}
+
+func (e *LoginRateLimitedError) Error() string {
+	return ErrLoginRateLimited.Error()
+}
+
+func (e *LoginRateLimitedError) Unwrap() error {
+	return ErrLoginRateLimited
+}
+
+func LoginRetryAfter(err error) (time.Duration, bool) {
+	var rateLimitedErr *LoginRateLimitedError
+	if errors.As(err, &rateLimitedErr) && rateLimitedErr.RetryAfter > 0 {
+		return rateLimitedErr.RetryAfter, true
+	}
+	return 0, false
+}
 
 type userRepository interface {
 	GetByEmail(ctx context.Context, email string) (model.User, error)
@@ -26,7 +47,7 @@ type tokenGenerator interface {
 }
 
 type loginRateLimiter interface {
-	TooManyAttempts(ctx context.Context, key string) (bool, error)
+	TooManyAttempts(ctx context.Context, key string) (bool, time.Duration, error)
 	RecordFailure(ctx context.Context, key string) error
 	Reset(ctx context.Context, key string) error
 }
@@ -98,11 +119,13 @@ func (s *AuthService) Login(ctx context.Context, email, password, clientIP strin
 	emailLimiterKey := loginRateLimitKey(email)
 	ipLimiterKey := loginIPRateLimitKey(clientIP)
 
-	if s.tooManyLoginAttempts(ctx, s.emailLoginLimiter, emailLimiterKey) {
-		return "", ErrLoginRateLimited
+	if tooManyAttempts, retryAfter := s.tooManyLoginAttempts(ctx, s.emailLoginLimiter, emailLimiterKey); tooManyAttempts {
+		return "", &LoginRateLimitedError{RetryAfter: retryAfter}
 	}
-	if ipLimiterKey != "" && s.tooManyLoginAttempts(ctx, s.ipLoginLimiter, ipLimiterKey) {
-		return "", ErrLoginRateLimited
+	if ipLimiterKey != "" {
+		if tooManyAttempts, retryAfter := s.tooManyLoginAttempts(ctx, s.ipLoginLimiter, ipLimiterKey); tooManyAttempts {
+			return "", &LoginRateLimitedError{RetryAfter: retryAfter}
+		}
 	}
 
 	user, err := s.userRepo.GetByEmail(ctx, email)
@@ -146,17 +169,17 @@ func loginIPRateLimitKey(clientIP string) string {
 	return loginIPRateLimitKeyPrefix + clientIP
 }
 
-func (s *AuthService) tooManyLoginAttempts(ctx context.Context, limiter loginRateLimiter, key string) bool {
+func (s *AuthService) tooManyLoginAttempts(ctx context.Context, limiter loginRateLimiter, key string) (bool, time.Duration) {
 	if limiter == nil {
-		return false
+		return false, 0
 	}
 
-	tooManyAttempts, err := limiter.TooManyAttempts(ctx, key)
+	tooManyAttempts, retryAfter, err := limiter.TooManyAttempts(ctx, key)
 	if err != nil {
 		log.Printf("check login rate limit: %v", err)
-		return false
+		return false, 0
 	}
-	return tooManyAttempts
+	return tooManyAttempts, retryAfter
 }
 
 func (s *AuthService) recordLoginFailures(ctx context.Context, emailKey, ipKey string) {

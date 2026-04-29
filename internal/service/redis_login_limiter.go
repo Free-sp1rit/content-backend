@@ -45,16 +45,26 @@ func NewRedisLoginLimiterWithOptions(client *redis.Client, maxFailures int64, wi
 	}
 }
 
-func (l *RedisLoginLimiter) TooManyAttempts(ctx context.Context, key string) (bool, error) {
+func (l *RedisLoginLimiter) TooManyAttempts(ctx context.Context, key string) (bool, time.Duration, error) {
 	count, err := l.client.Get(ctx, key).Int64()
 	if errors.Is(err, redis.Nil) {
-		return false, nil
+		return false, 0, nil
 	}
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
-	return count >= l.maxFailures, nil
+	if count < l.maxFailures {
+		return false, 0, nil
+	}
+
+	retryAfter := l.window
+	ttl, err := l.client.TTL(ctx, key).Result()
+	if err == nil && ttl > 0 {
+		retryAfter = ttl
+	}
+
+	return true, retryAfter, nil
 }
 
 func (l *RedisLoginLimiter) RecordFailure(ctx context.Context, key string) error {

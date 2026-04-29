@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"content-backend/internal/model"
 
@@ -43,12 +44,12 @@ func (g *fakeTokenGenerator) Generate(userID int64) (string, error) {
 }
 
 type fakeLoginRateLimiter struct {
-	tooManyAttemptsFunc func(ctx context.Context, key string) (bool, error)
+	tooManyAttemptsFunc func(ctx context.Context, key string) (bool, time.Duration, error)
 	recordFailureFunc   func(ctx context.Context, key string) error
 	resetFunc           func(ctx context.Context, key string) error
 }
 
-func (l *fakeLoginRateLimiter) TooManyAttempts(ctx context.Context, key string) (bool, error) {
+func (l *fakeLoginRateLimiter) TooManyAttempts(ctx context.Context, key string) (bool, time.Duration, error) {
 	if l.tooManyAttemptsFunc != nil {
 		return l.tooManyAttemptsFunc(ctx, key)
 	}
@@ -173,11 +174,11 @@ func TestAuthService_Login(t *testing.T) {
 
 	t.Run("rate limited", func(t *testing.T) {
 		limiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
 				if key != loginRateLimitKeyPrefix+"user@example.com" {
 					t.Fatalf("got limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
 				}
-				return true, nil
+				return true, 90 * time.Second, nil
 			},
 		}
 
@@ -185,23 +186,24 @@ func TestAuthService_Login(t *testing.T) {
 
 		_, err := service.Login(context.Background(), "User@Example.COM", "secret", "")
 		assertErrIs(t, err, ErrLoginRateLimited)
+		assertLoginRetryAfter(t, err, 90*time.Second)
 	})
 
 	t.Run("ip rate limited", func(t *testing.T) {
 		emailLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
 				if key != loginRateLimitKeyPrefix+"user@example.com" {
 					t.Fatalf("got email limiter key %q, want %q", key, loginRateLimitKeyPrefix+"user@example.com")
 				}
-				return false, nil
+				return false, 0, nil
 			},
 		}
 		ipLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
 				if key != loginIPRateLimitKeyPrefix+"192.0.2.1" {
 					t.Fatalf("got ip limiter key %q, want %q", key, loginIPRateLimitKeyPrefix+"192.0.2.1")
 				}
-				return true, nil
+				return true, 2 * time.Minute, nil
 			},
 		}
 
@@ -209,6 +211,7 @@ func TestAuthService_Login(t *testing.T) {
 
 		_, err := service.Login(context.Background(), "user@example.com", "secret", "192.0.2.1")
 		assertErrIs(t, err, ErrLoginRateLimited)
+		assertLoginRetryAfter(t, err, 2*time.Minute)
 	})
 
 	t.Run("limiter check error does not block login", func(t *testing.T) {
@@ -223,8 +226,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		limiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, errors.New("redis unavailable")
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, errors.New("redis unavailable")
 			},
 			resetFunc: func(ctx context.Context, key string) error {
 				return nil
@@ -263,8 +266,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		limiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			recordFailureFunc: func(ctx context.Context, key string) error {
 				recordFailureCalled = true
@@ -319,8 +322,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		limiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			recordFailureFunc: func(ctx context.Context, key string) error {
 				recordFailureCalled = true
@@ -349,8 +352,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		emailLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			recordFailureFunc: func(ctx context.Context, key string) error {
 				emailFailureCalled = true
@@ -361,8 +364,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		ipLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			recordFailureFunc: func(ctx context.Context, key string) error {
 				ipFailureCalled = true
@@ -454,8 +457,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		limiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			resetFunc: func(ctx context.Context, key string) error {
 				resetCalled = true
@@ -493,8 +496,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		emailLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 			resetFunc: func(ctx context.Context, key string) error {
 				emailResetCalled = true
@@ -502,8 +505,8 @@ func TestAuthService_Login(t *testing.T) {
 			},
 		}
 		ipLimiter := &fakeLoginRateLimiter{
-			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, error) {
-				return false, nil
+			tooManyAttemptsFunc: func(ctx context.Context, key string) (bool, time.Duration, error) {
+				return false, 0, nil
 			},
 		}
 

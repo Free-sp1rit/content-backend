@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	redismock "github.com/go-redis/redismock/v9"
 )
@@ -14,12 +15,15 @@ func TestRedisLoginLimiter_TooManyAttempts(t *testing.T) {
 
 		mock.ExpectGet("login:failures:email:user@example.com").RedisNil()
 
-		got, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got {
 			t.Fatal("expected too many attempts to be false")
+		}
+		if retryAfter != 0 {
+			t.Fatalf("got retry after %v, want zero", retryAfter)
 		}
 		assertRedisExpectationsMet(t, mock)
 	})
@@ -30,12 +34,15 @@ func TestRedisLoginLimiter_TooManyAttempts(t *testing.T) {
 
 		mock.ExpectGet("login:failures:email:user@example.com").SetVal("4")
 
-		got, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got {
 			t.Fatal("expected too many attempts to be false")
+		}
+		if retryAfter != 0 {
+			t.Fatalf("got retry after %v, want zero", retryAfter)
 		}
 		assertRedisExpectationsMet(t, mock)
 	})
@@ -45,13 +52,17 @@ func TestRedisLoginLimiter_TooManyAttempts(t *testing.T) {
 		limiter := NewRedisLoginLimiter(client)
 
 		mock.ExpectGet("login:failures:email:user@example.com").SetVal("5")
+		mock.ExpectTTL("login:failures:email:user@example.com").SetVal(3 * time.Minute)
 
-		got, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !got {
 			t.Fatal("expected too many attempts to be true")
+		}
+		if retryAfter != 3*time.Minute {
+			t.Fatalf("got retry after %v, want %v", retryAfter, 3*time.Minute)
 		}
 		assertRedisExpectationsMet(t, mock)
 	})
@@ -62,12 +73,15 @@ func TestRedisLoginLimiter_TooManyAttempts(t *testing.T) {
 
 		mock.ExpectGet("login:failures:ip:192.0.2.1").SetVal("19")
 
-		got, err := limiter.TooManyAttempts(context.Background(), "login:failures:ip:192.0.2.1")
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:ip:192.0.2.1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if got {
 			t.Fatal("expected too many attempts to be false")
+		}
+		if retryAfter != 0 {
+			t.Fatalf("got retry after %v, want zero", retryAfter)
 		}
 		assertRedisExpectationsMet(t, mock)
 	})
@@ -77,13 +91,37 @@ func TestRedisLoginLimiter_TooManyAttempts(t *testing.T) {
 		limiter := NewRedisLoginIPLimiter(client)
 
 		mock.ExpectGet("login:failures:ip:192.0.2.1").SetVal("20")
+		mock.ExpectTTL("login:failures:ip:192.0.2.1").SetVal(90 * time.Second)
 
-		got, err := limiter.TooManyAttempts(context.Background(), "login:failures:ip:192.0.2.1")
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:ip:192.0.2.1")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !got {
 			t.Fatal("expected too many attempts to be true")
+		}
+		if retryAfter != 90*time.Second {
+			t.Fatalf("got retry after %v, want %v", retryAfter, 90*time.Second)
+		}
+		assertRedisExpectationsMet(t, mock)
+	})
+
+	t.Run("at limit falls back to window when ttl is not positive", func(t *testing.T) {
+		client, mock := redismock.NewClientMock()
+		limiter := NewRedisLoginLimiterWithOptions(client, 5, 10*time.Minute)
+
+		mock.ExpectGet("login:failures:email:user@example.com").SetVal("5")
+		mock.ExpectTTL("login:failures:email:user@example.com").SetVal(-1)
+
+		got, retryAfter, err := limiter.TooManyAttempts(context.Background(), "login:failures:email:user@example.com")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !got {
+			t.Fatal("expected too many attempts to be true")
+		}
+		if retryAfter != 10*time.Minute {
+			t.Fatalf("got retry after %v, want %v", retryAfter, 10*time.Minute)
 		}
 		assertRedisExpectationsMet(t, mock)
 	})
