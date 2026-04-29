@@ -252,3 +252,68 @@ func TestAuthHandler_Login(t *testing.T) {
 		}
 	})
 }
+
+func TestClientIPFromRequest(t *testing.T) {
+	tests := []struct {
+		name          string
+		remoteAddr    string
+		xForwardedFor string
+		xRealIP       string
+		want          string
+	}{
+		{
+			name:       "direct request with port",
+			remoteAddr: "198.51.100.10:12345",
+			want:       "198.51.100.10",
+		},
+		{
+			name:          "direct request ignores forwarded header",
+			remoteAddr:    "198.51.100.10:12345",
+			xForwardedFor: "203.0.113.10",
+			want:          "198.51.100.10",
+		},
+		{
+			name:          "trusted proxy uses forwarded header",
+			remoteAddr:    "172.18.0.3:12345",
+			xForwardedFor: "203.0.113.10",
+			want:          "203.0.113.10",
+		},
+		{
+			name:       "trusted proxy falls back to real ip header",
+			remoteAddr: "127.0.0.1:12345",
+			xRealIP:    "203.0.113.11",
+			want:       "203.0.113.11",
+		},
+		{
+			name:          "trusted proxy ignores invalid forwarded header",
+			remoteAddr:    "172.18.0.3:12345",
+			xForwardedFor: "not-an-ip",
+			want:          "172.18.0.3",
+		},
+		{
+			name:       "remote address without port",
+			remoteAddr: "203.0.113.10",
+			want:       "203.0.113.10",
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/login", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.xForwardedFor != "" {
+				req.Header.Set("X-Forwarded-For", tt.xForwardedFor)
+			}
+			if tt.xRealIP != "" {
+				req.Header.Set("X-Real-IP", tt.xRealIP)
+			}
+
+			got := clientIPFromRequest(req)
+
+			if got != tt.want {
+				t.Fatalf("got client ip %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
