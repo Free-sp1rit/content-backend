@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"content-backend/internal/service"
 )
@@ -153,12 +154,19 @@ func TestAuthHandler_Login(t *testing.T) {
 	})
 
 	loginErrorCases := []struct {
-		name       string
-		serviceErr error
-		wantStatus int
+		name           string
+		serviceErr     error
+		wantStatus     int
+		wantRetryAfter string
 	}{
 		{name: "invalid credentials", serviceErr: service.ErrInvalidCredentials, wantStatus: http.StatusUnauthorized},
 		{name: "rate limited", serviceErr: service.ErrLoginRateLimited, wantStatus: http.StatusTooManyRequests},
+		{
+			name:           "rate limited with retry after",
+			serviceErr:     &service.LoginRateLimitedError{RetryAfter: 90 * time.Second},
+			wantStatus:     http.StatusTooManyRequests,
+			wantRetryAfter: "90",
+		},
 		{name: "internal error", serviceErr: errors.New("login failed"), wantStatus: http.StatusInternalServerError},
 	}
 
@@ -183,6 +191,9 @@ func TestAuthHandler_Login(t *testing.T) {
 
 			if rec.Code != tc.wantStatus {
 				t.Fatalf("got status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if rec.Header().Get("Retry-After") != tc.wantRetryAfter {
+				t.Fatalf("got Retry-After %q, want %q", rec.Header().Get("Retry-After"), tc.wantRetryAfter)
 			}
 			if !called {
 				t.Fatal("expected Login to be called")
@@ -313,6 +324,28 @@ func TestClientIPFromRequest(t *testing.T) {
 
 			if got != tt.want {
 				t.Fatalf("got client ip %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRetryAfterSeconds(t *testing.T) {
+	tests := []struct {
+		name string
+		in   time.Duration
+		want int64
+	}{
+		{name: "round seconds up", in: 1500 * time.Millisecond, want: 2},
+		{name: "exact seconds", in: 2 * time.Second, want: 2},
+		{name: "minimum one second", in: time.Millisecond, want: 1},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			got := retryAfterSeconds(tt.in)
+			if got != tt.want {
+				t.Fatalf("got retry after seconds %d, want %d", got, tt.want)
 			}
 		})
 	}
