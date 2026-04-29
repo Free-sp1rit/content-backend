@@ -19,6 +19,16 @@
 
 任务草稿可以包含实现提示，但真正公开给协作者时应保留清晰、可验收的用户视角描述。
 
+## Current Queue
+
+- 已完成：`000-Tie-up-loose-ends-before-next-phase.md`
+- Umbrella：`000-next-phase-roadmap.md`
+- 下一步：`001-align-deployment-docs.md`
+- 后续：`002-document-redis-runtime-state.md`
+- 后续：`003-add-smoke-test.md`
+- 后续：`004-harden-article-concurrency.md`
+- 阶段末：`005-add-minimal-web-frontend.md`
+
 ## Maintenance Rules
 
 - 每个文件只描述一个具体任务或一个 umbrella issue。
