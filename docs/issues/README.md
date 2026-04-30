@@ -25,10 +25,12 @@
 - 已完成：`001-redis-atomic-counter-integration`
 - 已完成：`002-redis-counter-runtime-verification.md`
 - 已完成：`004-redis-authenticated-view-dedup.md`
+- 已完成：`005-redis-view-counter-atomicity-tie-up.md`
 - Umbrella：`000-next-phase-roadmap.md`
 - 后续学习笔记：`003-redis-counter-learning-notes.md`
-- 当前收口：Redis 登录用户阅读去重实现，等待提交
-- 后续任务：根据下一阶段学习推进结果继续生成或调整
+- 当前收口：Redis 阅读计数原子化与验证收口，等待提交
+- 下一阶段：部署文档与 smoke 验证对齐，待生成或调整 issue
+- 后续任务：根据 Redis 阅读计数原子化收口结果继续生成或调整
 
 ## Maintenance Rules
 
