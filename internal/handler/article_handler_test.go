@@ -15,7 +15,7 @@ type fakeArticleService struct {
 	publishArticleFunc        func(ctx context.Context, articleID, currentUserID int64) error
 	listPublishedArticlesFunc func(ctx context.Context) ([]model.Article, error)
 	listMyArticlesFunc        func(ctx context.Context, authorID int64) ([]model.Article, error)
-	getArticleFunc            func(ctx context.Context, articleID int64) (model.Article, error)
+	getArticleFunc            func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
 	updateArticleFunc         func(ctx context.Context, articleID, currentUserID int64, title, content string) error
 }
 
@@ -47,9 +47,9 @@ func (s *fakeArticleService) ListMyArticles(ctx context.Context, authorID int64)
 	panic("unexpected call to ListMyArticles")
 }
 
-func (s *fakeArticleService) GetArticle(ctx context.Context, articleID int64) (model.Article, error) {
+func (s *fakeArticleService) GetArticle(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error) {
 	if s.getArticleFunc != nil {
-		return s.getArticleFunc(ctx, articleID)
+		return s.getArticleFunc(ctx, articleID, viewer)
 	}
 	panic("unexpected call to GetArticle")
 }
@@ -142,7 +142,7 @@ func TestArticleHandler_CreateArticle(t *testing.T) {
 func TestArticleHandler_GetArticle(t *testing.T) {
 	t.Run("article not found", func(t *testing.T) {
 		svc := &fakeArticleService{
-			getArticleFunc: func(ctx context.Context, articleID int64) (model.Article, error) {
+			getArticleFunc: func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error) {
 				return model.Article{}, service.ErrArticleNotFound
 			},
 		}
@@ -167,15 +167,64 @@ func TestArticleHandler_GetArticle(t *testing.T) {
 		}
 
 		svc := &fakeArticleService{
-			getArticleFunc: func(ctx context.Context, articleID int64) (model.Article, error) {
+			getArticleFunc: func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error) {
 				if articleID != 1024 {
 					t.Fatalf("got article id %d, want %d", articleID, int64(1024))
+				}
+				if viewer.Authenticated {
+					t.Fatal("expected anonymous viewer")
 				}
 				return wantArticle, nil
 			},
 		}
 		handler := NewArticleHandler(svc)
 		rec := performHandlerRequest(http.MethodGet, "/articles/1024", "", http.HandlerFunc(handler.GetArticle))
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+		}
+		assertJSONContentType(t, rec)
+
+		var got ArticleDetailResponse
+		decodeJSONResponse(t, rec.Body, &got)
+		assertArticleDetailResponse(t, got, wantArticle)
+	})
+
+	t.Run("success with authenticated viewer", func(t *testing.T) {
+		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		wantArticle := model.Article{
+			ID:        1024,
+			AuthorID:  7,
+			Title:     "title",
+			Content:   "content",
+			State:     model.ArticleStatePublished,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		svc := &fakeArticleService{
+			getArticleFunc: func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error) {
+				if articleID != 1024 {
+					t.Fatalf("got article id %d, want %d", articleID, int64(1024))
+				}
+				if !viewer.Authenticated {
+					t.Fatal("expected authenticated viewer")
+				}
+				if viewer.UserID != 99 {
+					t.Fatalf("got viewer user id %d, want %d", viewer.UserID, int64(99))
+				}
+				return wantArticle, nil
+			},
+		}
+		handler := NewArticleHandler(svc)
+		rec := performAuthenticatedHandlerRequest(
+			t,
+			99,
+			http.MethodGet,
+			"/articles/1024",
+			"",
+			http.HandlerFunc(handler.GetArticle),
+		)
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)

@@ -34,6 +34,12 @@ type articleCache interface {
 
 type articleViewCounter interface {
 	Increment(ctx context.Context, articleID int64) error
+	IncrementAuthenticated(ctx context.Context, articleID, userID int64) error
+}
+
+type ArticleViewer struct {
+	UserID        int64
+	Authenticated bool
 }
 
 type ArticleService struct {
@@ -166,7 +172,7 @@ func (s *ArticleService) ListMyArticles(ctx context.Context, authorID int64) ([]
 	return articles, nil
 }
 
-func (s *ArticleService) GetArticle(ctx context.Context, articleID int64) (model.Article, error) {
+func (s *ArticleService) GetArticle(ctx context.Context, articleID int64, viewer ArticleViewer) (model.Article, error) {
 	article, err := s.articleRepo.GetByID(ctx, articleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Article{}, ErrArticleNotFound
@@ -178,7 +184,7 @@ func (s *ArticleService) GetArticle(ctx context.Context, articleID int64) (model
 		return model.Article{}, ErrArticleNotFound
 	}
 
-	s.incrementArticleViewCount(ctx, article.ID)
+	s.incrementArticleViewCount(ctx, article.ID, viewer)
 
 	return article, nil
 }
@@ -255,7 +261,7 @@ func (s *ArticleService) deletePublishedArticlesCache(ctx context.Context) {
 	}
 }
 
-func (s *ArticleService) incrementArticleViewCount(ctx context.Context, articleID int64) {
+func (s *ArticleService) incrementArticleViewCount(ctx context.Context, articleID int64, viewer ArticleViewer) {
 	if s.viewCounter == nil {
 		return
 	}
@@ -263,5 +269,14 @@ func (s *ArticleService) incrementArticleViewCount(ctx context.Context, articleI
 	err := s.viewCounter.Increment(ctx, articleID)
 	if err != nil {
 		log.Printf("increment article view count: %v", err)
+	}
+
+	if !viewer.Authenticated {
+		return
+	}
+
+	err = s.viewCounter.IncrementAuthenticated(ctx, articleID, viewer.UserID)
+	if err != nil {
+		log.Printf("increment authenticated article view count: %v", err)
 	}
 }

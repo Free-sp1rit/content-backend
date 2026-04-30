@@ -10,6 +10,7 @@ Redis 在本项目中不替代 PostgreSQL。它用于短期运行态和性能保
 - 公开文章列表缓存
 - 缓存击穿保护的配合能力
 - 文章阅读计数原型
+- 登录用户阅读去重计数原型
 
 核心原则：
 
@@ -75,27 +76,43 @@ login:failures:ip:<client-ip>
 
 ### Article View Counter Prototype
 
-当前公开文章详情访问成功后，会使用 Redis 原子自增记录阅读次数。
+当前公开文章详情访问成功后，会使用 Redis 原子自增记录阅读次数，并在请求携带合法 JWT 时额外记录登录用户去重阅读次数。
 
-当前 key 设计：
+原始访问计数 key：
 
 ```text
 article:views:<article_id>
 ```
 
+登录用户去重计数 key：
+
+```text
+article:user_views:<article_id>
+```
+
+登录用户短期去重标记 key：
+
+```text
+article:viewed:<article_id>:user:<user_id>
+```
+
 当前实现边界：
 
 - 触发时机：只有公开文章详情查询成功，并且文章状态为 `published` 后才递增。
-- Redis 命令：使用 `INCR`，保证单个 key 的递增在 Redis 内部原子完成。
-- TTL：第一版不设置 TTL；这是学习型原型，后续如果长期保留计数，需要补清理、落库或重建策略。
-- 防重复：第一版不做同一用户或同一 IP 去重；刷新一次算一次。
+- 原始访问计数：对 `article:views:<article_id>` 使用 `INCR`，不做去重，刷新一次算一次。
+- 登录用户去重计数：请求携带合法 JWT 时，先对 `article:viewed:<article_id>:user:<user_id>` 执行 `SET NX EX`，成功后才对 `article:user_views:<article_id>` 执行 `INCR`。
+- 登录用户去重窗口：默认 24 小时，当前未暴露为环境变量。
+- TTL：`article:views:<article_id>` 和 `article:user_views:<article_id>` 第一版不设置 TTL；`article:viewed:<article_id>:user:<user_id>` 设置 24 小时 TTL。
+- 防重复：只对登录用户去重；匿名访问不引入 cookie、设备 ID 或浏览器指纹。
 - API 表现：第一版不在文章详情响应中返回阅读数，避免把 Redis 原型直接扩大成公开 API 契约。
 - PostgreSQL 边界：文章内容仍以 PostgreSQL 为事实来源；阅读计数暂不写入 PostgreSQL。
+- 认证边界：公开文章详情不强制登录；如果请求没有 `Authorization` header，按匿名访问处理；如果携带无效或过期 JWT，返回 `401`。
 
 失败策略：
 
 - Redis 自增失败时记录日志，不影响文章详情查询。
-- Redis 不可用时，文章仍可正常读取，只是阅读计数暂时丢失或停止增长。
+- Redis 登录用户去重标记或去重计数失败时记录日志，不影响文章详情查询。
+- Redis 不可用时，文章仍可正常读取，只是阅读计数或登录用户去重计数暂时丢失或停止增长。
 - 这个取舍适合当前学习阶段；如果未来阅读数成为产品核心数据，需要重新设计持久化和补偿机制。
 
 运行验证：
@@ -146,6 +163,22 @@ docker compose --env-file .env.compose exec -T redis \
 
 预期 Redis 返回 `2`。如果这个 key 已经在之前的手工验证中存在，返回值可能大于 `2`，但应该随每次成功访问公开详情继续递增。
 
+登录用户去重计数可以在同一篇文章上继续验证：
+
+```bash
+curl -sS "$BASE_URL/articles/$ARTICLE_ID" \
+  -H "Authorization: Bearer $TOKEN" > /dev/null
+curl -sS "$BASE_URL/articles/$ARTICLE_ID" \
+  -H "Authorization: Bearer $TOKEN" > /dev/null
+
+docker compose --env-file .env.compose exec -T redis \
+  redis-cli GET "article:user_views:$ARTICLE_ID"
+docker compose --env-file .env.compose exec -T redis \
+  redis-cli EXISTS "article:viewed:$ARTICLE_ID:user:<user_id>"
+```
+
+同一登录用户在 24 小时窗口内访问两次，`article:user_views:<article_id>` 应只增加一次。`<user_id>` 可以从注册响应或 JWT claims 中确认；当前文档保留为占位符，避免依赖本机临时数据。
+
 边界验证：
 
 ```bash
@@ -183,7 +216,7 @@ docker compose --env-file .env.compose start redis
 这些方向可以在后续阶段逐步选择，不需要一次性完成：
 
 - 阅读计数批量落库
-- 阅读计数短期去重
+- 匿名阅读计数短期去重
 - token 黑名单或会话控制
 - 更细粒度的接口限流
 - 异步任务状态
