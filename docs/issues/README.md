@@ -19,6 +19,16 @@
 
 任务草稿可以包含实现提示，但真正公开给协作者时应保留清晰、可验收的用户视角描述。
 
+## Current Queue
+
+- 已完成：`000-Tie-up-loose-ends-before-next-phase.md`
+- 已完成：`001-redis-atomic-counter-integration`
+- 已完成：`002-redis-counter-runtime-verification.md`
+- Umbrella：`000-next-phase-roadmap.md`
+- 当前收口：Redis 原子计数器实现和运行验证，等待提交
+- 后续学习笔记：`003-redis-counter-learning-notes.md`
+- 后续任务：根据 Redis 运行验证和学习推进结果继续生成或调整
+
 ## Maintenance Rules
 
 - 每个文件只描述一个具体任务或一个 umbrella issue。

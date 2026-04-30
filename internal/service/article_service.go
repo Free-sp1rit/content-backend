@@ -32,9 +32,14 @@ type articleCache interface {
 	Delete(ctx context.Context, key string) error
 }
 
+type articleViewCounter interface {
+	Increment(ctx context.Context, articleID int64) error
+}
+
 type ArticleService struct {
 	articleRepo            articleRepository
 	cache                  articleCache
+	viewCounter            articleViewCounter
 	publishedArticlesGroup singleflight.Group
 }
 
@@ -46,6 +51,21 @@ func NewArticleServiceWithCache(articleRepo articleRepository, cache articleCach
 	return &ArticleService{
 		articleRepo: articleRepo,
 		cache:       cache,
+	}
+}
+
+func NewArticleServiceWithViewCounter(articleRepo articleRepository, viewCounter articleViewCounter) *ArticleService {
+	return &ArticleService{
+		articleRepo: articleRepo,
+		viewCounter: viewCounter,
+	}
+}
+
+func NewArticleServiceWithCacheAndViewCounter(articleRepo articleRepository, cache articleCache, viewCounter articleViewCounter) *ArticleService {
+	return &ArticleService{
+		articleRepo: articleRepo,
+		cache:       cache,
+		viewCounter: viewCounter,
 	}
 }
 
@@ -158,6 +178,8 @@ func (s *ArticleService) GetArticle(ctx context.Context, articleID int64) (model
 		return model.Article{}, ErrArticleNotFound
 	}
 
+	s.incrementArticleViewCount(ctx, article.ID)
+
 	return article, nil
 }
 
@@ -230,5 +252,16 @@ func (s *ArticleService) deletePublishedArticlesCache(ctx context.Context) {
 	err := s.cache.Delete(ctx, publishedArticlesCacheKey)
 	if err != nil {
 		log.Printf("delete published articles cache: %v", err)
+	}
+}
+
+func (s *ArticleService) incrementArticleViewCount(ctx context.Context, articleID int64) {
+	if s.viewCounter == nil {
+		return
+	}
+
+	err := s.viewCounter.Increment(ctx, articleID)
+	if err != nil {
+		log.Printf("increment article view count: %v", err)
 	}
 }

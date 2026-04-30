@@ -145,7 +145,7 @@ cp db.env.example db.env
 - `app.env` 负责应用容器运行时环境变量
 - `db.env` 负责 PostgreSQL 容器运行时环境变量
 - `nginx` 作为对外入口，负责把宿主机请求转发到内部 `app` 服务
-- `redis` 负责登录失败限流、公开文章列表缓存和缓存击穿保护的运行态数据
+- `redis` 负责登录失败限流、公开文章列表缓存、阅读计数原型和缓存击穿保护的运行态数据
 
 然后启动整套服务：
 
@@ -226,6 +226,7 @@ host -> nginx -> app -> PostgreSQL
 - 创建文章
 - 发布文章
 - 再次查询公开文章列表，确认新发布文章可见
+- 访问公开文章详情，并验证 Redis `article:views:<article_id>` 阅读计数会递增
 
 ## Test
 
@@ -274,6 +275,7 @@ Authorization: Bearer <token>
 - PostgreSQL 数据持久化
 - Redis 登录失败 email/IP 限流
 - 公开文章列表 Redis 缓存和 singleflight 防击穿
+- 文章详情访问 Redis 阅读计数原型
 - 登录限流 `Retry-After` 响应和可配置阈值
 
 Alpha 阶段后续优先补充：

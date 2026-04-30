@@ -2,6 +2,20 @@
 
 ## User Facing Issue
 
+### Status
+
+已完成并通过 PR #10 合并。
+
+本任务完成后：
+
+- 公共长期规则已经沉淀到 `AGENTS.md`。
+- 项目说明已经同步到 `README.md`、`ROADMAP.md` 和 `docs/`。
+- agent 使用的任务草稿已经同步到 `docs/issues/`。
+- 用户新建 issue 的入口已经同步到 `.github/ISSUE_TEMPLATE/`。
+- `.codex/` 仍作为本地个人 guidance，不随仓库提交。
+
+下一步从 `001-align-deployment-docs.md` 开始推进。
+
 ### Background
 
 项目新增 agent instructions，需要对 agent instructions 做 review 和修改，目标是对齐项目版本和阶段需求，并使 agent instructions 可持续自主更新。

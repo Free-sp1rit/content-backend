@@ -66,6 +66,7 @@ host -> nginx -> app -> PostgreSQL
 - 使用 JWT 创建文章草稿。
 - 发布文章。
 - 再次查询公开文章列表，确认新发布文章可见。
+- 访问公开文章详情，并按 `docs/redis.md` 的 Redis 阅读计数 smoke 步骤确认 `article:views:<article_id>` 递增。
 
 常见排障入口：
 

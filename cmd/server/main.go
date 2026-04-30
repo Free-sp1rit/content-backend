@@ -75,7 +75,11 @@ func main() {
 			cfg.LoginRateLimit.Window,
 		),
 	)
-	articleService := service.NewArticleServiceWithCache(articleRepo, service.NewRedisCache(redisClient))
+	articleService := service.NewArticleServiceWithCacheAndViewCounter(
+		articleRepo,
+		service.NewRedisCache(redisClient),
+		service.NewRedisArticleViewCounter(redisClient),
+	)
 
 	authMiddleware := middleware.NewAuthMiddleware(tokenManager)
 
