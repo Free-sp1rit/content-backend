@@ -12,7 +12,7 @@
 - 环境变量配置、Dockerfile、Docker Compose、nginx 反向代理
 - PostgreSQL 数据持久化
 - Redis 登录失败 email/IP 限流、公开文章列表缓存、singleflight 防击穿
-- Redis 文章阅读计数原型和登录用户阅读去重原型
+- Redis 文章阅读计数原型、登录用户阅读去重原型和 Lua 原子化去重计数
 - 反向代理后的可信客户端 IP 解析，用于 IP 登录限流
 - `Retry-After` 登录限流响应和可配置限流阈值
 - `gofmt` + `go test ./...` 最小 CI
@@ -33,6 +33,7 @@ Alpha 开发前文档与 agent instructions 收口
 -> Redis 原子计数器原型
 -> Redis 运行验证和边界测试
 -> Redis 登录用户阅读去重原型
+-> Redis 阅读计数原子化与验证收口
 -> 部署文档与 smoke 验证对齐
 -> 文章发布/编辑并发安全改造
 -> PostgreSQL / Redis 集成验证
@@ -49,6 +50,7 @@ Alpha 开发前文档与 agent instructions 收口
 - `docs/issues/002-redis-counter-runtime-verification.md`
 - `docs/issues/003-redis-counter-learning-notes.md`
 - `docs/issues/004-redis-authenticated-view-dedup.md`
+- `docs/issues/005-redis-view-counter-atomicity-tie-up.md`
 
 ## Issue Maintenance
 

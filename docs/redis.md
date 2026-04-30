@@ -100,7 +100,7 @@ article:viewed:<article_id>:user:<user_id>
 
 - 触发时机：只有公开文章详情查询成功，并且文章状态为 `published` 后才递增。
 - 原始访问计数：对 `article:views:<article_id>` 使用 `INCR`，不做去重，刷新一次算一次。
-- 登录用户去重计数：请求携带合法 JWT 时，先对 `article:viewed:<article_id>:user:<user_id>` 执行 `SET NX EX`，成功后才对 `article:user_views:<article_id>` 执行 `INCR`。
+- 登录用户去重计数：请求携带合法 JWT 时，通过 Redis Lua 脚本在 Redis 内部一次完成 `SET NX EX` 和条件 `INCR`。
 - 登录用户去重窗口：默认 24 小时，当前未暴露为环境变量。
 - TTL：`article:views:<article_id>` 和 `article:user_views:<article_id>` 第一版不设置 TTL；`article:viewed:<article_id>:user:<user_id>` 设置 24 小时 TTL。
 - 防重复：只对登录用户去重；匿名访问不引入 cookie、设备 ID 或浏览器指纹。
@@ -108,10 +108,35 @@ article:viewed:<article_id>:user:<user_id>
 - PostgreSQL 边界：文章内容仍以 PostgreSQL 为事实来源；阅读计数暂不写入 PostgreSQL。
 - 认证边界：公开文章详情不强制登录；如果请求没有 `Authorization` header，按匿名访问处理；如果携带无效或过期 JWT，返回 `401`。
 
+登录用户去重 Lua 语义：
+
+```lua
+if redis.call("SET", KEYS[1], "1", "NX", "EX", ARGV[1]) then
+	return redis.call("INCR", KEYS[2])
+end
+return 0
+```
+
+参数：
+
+```text
+KEYS[1] = article:viewed:<article_id>:user:<user_id>
+KEYS[2] = article:user_views:<article_id>
+ARGV[1] = 去重窗口秒数
+```
+
+返回 `0` 表示窗口内重复访问；返回正整数表示本次是窗口内首次访问，并返回递增后的登录用户去重阅读次数。
+
+与登录限流 Lua 的关系：
+
+- 相同点：两者都把“计数 + TTL/条件判断”放进 Redis 端脚本，避免客户端两步命令之间出现中间不一致。
+- 登录限流脚本：每次失败都 `INCR`，只在首次失败时补 `EXPIRE`，核心问题是“窗口内失败了多少次”。
+- 阅读去重脚本：先用 `SET NX EX` 判断是否窗口内首次阅读，只有首次阅读才 `INCR`，核心问题是“同一用户窗口内只计一次”。
+
 失败策略：
 
 - Redis 自增失败时记录日志，不影响文章详情查询。
-- Redis 登录用户去重标记或去重计数失败时记录日志，不影响文章详情查询。
+- Redis 登录用户去重 Lua 脚本失败时记录日志，不影响文章详情查询。
 - Redis 不可用时，文章仍可正常读取，只是阅读计数或登录用户去重计数暂时丢失或停止增长。
 - 这个取舍适合当前学习阶段；如果未来阅读数成为产品核心数据，需要重新设计持久化和补偿机制。
 
@@ -130,9 +155,12 @@ BASE_URL=http://127.0.0.1:8080
 EMAIL="redis-counter-$(date +%s)@example.com"
 PASSWORD="secret123"
 
-curl -sS -X POST "$BASE_URL/register" \
+REGISTER_RESPONSE=$(curl -sS -X POST "$BASE_URL/register" \
   -H "Content-Type: application/json" \
-  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}")
+
+USER_ID=$(printf '%s' "$REGISTER_RESPONSE" \
+  | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
 
 TOKEN=$(curl -sS -X POST "$BASE_URL/login" \
   -H "Content-Type: application/json" \
@@ -174,10 +202,19 @@ curl -sS "$BASE_URL/articles/$ARTICLE_ID" \
 docker compose --env-file .env.compose exec -T redis \
   redis-cli GET "article:user_views:$ARTICLE_ID"
 docker compose --env-file .env.compose exec -T redis \
-  redis-cli EXISTS "article:viewed:$ARTICLE_ID:user:<user_id>"
+  redis-cli EXISTS "article:viewed:$ARTICLE_ID:user:$USER_ID"
 ```
 
-同一登录用户在 24 小时窗口内访问两次，`article:user_views:<article_id>` 应只增加一次。`<user_id>` 可以从注册响应或 JWT claims 中确认；当前文档保留为占位符，避免依赖本机临时数据。
+同一登录用户在 24 小时窗口内访问两次，`article:user_views:<article_id>` 应只增加一次；去重标记 `EXISTS` 应返回 `1`。
+
+无效 JWT 验证：
+
+```bash
+curl -i "$BASE_URL/articles/$ARTICLE_ID" \
+  -H "Authorization: Bearer invalid.jwt.value"
+```
+
+预期返回 `401 Unauthorized`。公开文章详情仍然允许无 `Authorization` header 的匿名访问，但客户端显式携带错误认证信息时应返回认证失败。
 
 边界验证：
 

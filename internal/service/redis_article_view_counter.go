@@ -14,6 +14,13 @@ const articleViewedKeyPrefix = "article:viewed:"
 
 const defaultArticleUserViewDedupWindow = 24 * time.Hour
 
+var incrementAuthenticatedArticleViewScript = redis.NewScript(`
+if redis.call("SET", KEYS[1], "1", "NX", "EX", ARGV[1]) then
+	return redis.call("INCR", KEYS[2])
+end
+return 0
+`)
+
 type RedisArticleViewCounter struct {
 	client              *redis.Client
 	userViewDedupWindow time.Duration
@@ -39,20 +46,24 @@ func (c *RedisArticleViewCounter) Increment(ctx context.Context, articleID int64
 }
 
 func (c *RedisArticleViewCounter) IncrementAuthenticated(ctx context.Context, articleID, userID int64) error {
-	firstView, err := c.client.SetNX(
+	return incrementAuthenticatedArticleViewScript.Run(
 		ctx,
-		articleViewedKey(articleID, userID),
-		"1",
-		c.userViewDedupWindow,
-	).Result()
-	if err != nil {
-		return err
-	}
-	if !firstView {
-		return nil
+		c.client,
+		[]string{
+			articleViewedKey(articleID, userID),
+			articleUserViewCountKey(articleID),
+		},
+		c.userViewDedupWindowSeconds(),
+	).Err()
+}
+
+func (c *RedisArticleViewCounter) userViewDedupWindowSeconds() string {
+	seconds := int64(c.userViewDedupWindow / time.Second)
+	if seconds < 1 {
+		seconds = 1
 	}
 
-	return c.client.Incr(ctx, articleUserViewCountKey(articleID)).Err()
+	return strconv.FormatInt(seconds, 10)
 }
 
 func articleViewCountKey(articleID int64) string {
