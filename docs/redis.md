@@ -9,6 +9,7 @@ Redis 在本项目中不替代 PostgreSQL。它用于短期运行态和性能保
 - 登录失败限流
 - 公开文章列表缓存
 - 缓存击穿保护的配合能力
+- 文章阅读计数原型
 
 核心原则：
 
@@ -72,11 +73,117 @@ login:failures:ip:<client-ip>
 - `singleflight` 不是跨进程锁；如果未来多副本部署，需要重新评估跨实例击穿保护。
 - 发布和编辑的状态流转仍需在文章并发加固任务中继续处理。
 
+### Article View Counter Prototype
+
+当前公开文章详情访问成功后，会使用 Redis 原子自增记录阅读次数。
+
+当前 key 设计：
+
+```text
+article:views:<article_id>
+```
+
+当前实现边界：
+
+- 触发时机：只有公开文章详情查询成功，并且文章状态为 `published` 后才递增。
+- Redis 命令：使用 `INCR`，保证单个 key 的递增在 Redis 内部原子完成。
+- TTL：第一版不设置 TTL；这是学习型原型，后续如果长期保留计数，需要补清理、落库或重建策略。
+- 防重复：第一版不做同一用户或同一 IP 去重；刷新一次算一次。
+- API 表现：第一版不在文章详情响应中返回阅读数，避免把 Redis 原型直接扩大成公开 API 契约。
+- PostgreSQL 边界：文章内容仍以 PostgreSQL 为事实来源；阅读计数暂不写入 PostgreSQL。
+
+失败策略：
+
+- Redis 自增失败时记录日志，不影响文章详情查询。
+- Redis 不可用时，文章仍可正常读取，只是阅读计数暂时丢失或停止增长。
+- 这个取舍适合当前学习阶段；如果未来阅读数成为产品核心数据，需要重新设计持久化和补偿机制。
+
+运行验证：
+
+第一版采用 Docker Compose smoke 步骤验证真实 Redis 行为。假设已经按 `README.md` 准备 `.env.compose`、`app.env`、`db.env` 并启动服务：
+
+```bash
+docker compose --env-file .env.compose up --build -d
+```
+
+准备一个临时用户、创建草稿并发布：
+
+```bash
+BASE_URL=http://127.0.0.1:8080
+EMAIL="redis-counter-$(date +%s)@example.com"
+PASSWORD="secret123"
+
+curl -sS -X POST "$BASE_URL/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}"
+
+TOKEN=$(curl -sS -X POST "$BASE_URL/login" \
+  -H "Content-Type: application/json" \
+  -d "{\"email\":\"$EMAIL\",\"password\":\"$PASSWORD\"}" \
+  | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+
+ARTICLE_ID=$(curl -sS -X POST "$BASE_URL/articles" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"title":"redis counter smoke","content":"check article view counter"}' \
+  | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+
+curl -sS -X POST "$BASE_URL/articles/publish" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d "{\"article_id\":$ARTICLE_ID}"
+```
+
+访问公开详情两次，再读取 Redis key：
+
+```bash
+curl -sS "$BASE_URL/articles/$ARTICLE_ID" > /dev/null
+curl -sS "$BASE_URL/articles/$ARTICLE_ID" > /dev/null
+
+docker compose --env-file .env.compose exec -T redis \
+  redis-cli GET "article:views:$ARTICLE_ID"
+```
+
+预期 Redis 返回 `2`。如果这个 key 已经在之前的手工验证中存在，返回值可能大于 `2`，但应该随每次成功访问公开详情继续递增。
+
+边界验证：
+
+```bash
+DRAFT_ID=$(curl -sS -X POST "$BASE_URL/articles" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $TOKEN" \
+  -d '{"title":"redis counter draft","content":"should stay hidden"}' \
+  | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+
+curl -i "$BASE_URL/articles/$DRAFT_ID"
+docker compose --env-file .env.compose exec -T redis \
+  redis-cli EXISTS "article:views:$DRAFT_ID"
+
+MISSING_ID=999999999
+curl -i "$BASE_URL/articles/$MISSING_ID"
+docker compose --env-file .env.compose exec -T redis \
+  redis-cli EXISTS "article:views:$MISSING_ID"
+```
+
+草稿文章和不存在的文章详情都应返回 `404`，对应 Redis key 的 `EXISTS` 应返回 `0`。
+
+Redis 故障降级可以在本地 smoke 环境中这样验证：
+
+```bash
+docker compose --env-file .env.compose stop redis
+curl -i "$BASE_URL/articles/$ARTICLE_ID"
+docker compose --env-file .env.compose logs app --tail=50
+docker compose --env-file .env.compose start redis
+```
+
+预期文章详情仍返回 `200`，应用日志中出现阅读计数自增失败记录。验证完成后要重新启动 Redis，避免影响后续登录限流、公开列表缓存和阅读计数验证。
+
 ## Future Candidate Scenarios
 
 这些方向可以在后续阶段逐步选择，不需要一次性完成：
 
-- 热门文章阅读计数
+- 阅读计数批量落库
+- 阅读计数短期去重
 - token 黑名单或会话控制
 - 更细粒度的接口限流
 - 异步任务状态

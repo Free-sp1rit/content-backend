@@ -22,12 +22,12 @@
 ## Current Queue
 
 - 已完成：`000-Tie-up-loose-ends-before-next-phase.md`
+- 已完成：`001-redis-atomic-counter-integration`
+- 已完成：`002-redis-counter-runtime-verification.md`
 - Umbrella：`000-next-phase-roadmap.md`
-- 下一步：`001-align-deployment-docs.md`
-- 后续：`002-document-redis-runtime-state.md`
-- 后续：`003-add-smoke-test.md`
-- 后续：`004-harden-article-concurrency.md`
-- 阶段末：`005-add-minimal-web-frontend.md`
+- 当前收口：Redis 原子计数器实现和运行验证，等待提交
+- 后续学习笔记：`003-redis-counter-learning-notes.md`
+- 后续任务：根据 Redis 运行验证和学习推进结果继续生成或调整
 
 ## Maintenance Rules
 

@@ -1,0 +1,48 @@
+# Issue: 增加文章阅读计数 Redis 原型
+
+## Status
+
+代码实现、测试和 Redis 文档更新已完成。学习笔记已从本 issue 拆出，后续按 `003-redis-counter-learning-notes.md` 单独整理。
+
+## Background
+
+项目已经使用 Redis 做公开文章列表缓存和登录失败限流。下一步需要学习 Redis 原子计数器能力，用文章阅读数作为业务场景，理解 Redis 如何承载高频短期写入状态，以及它和 PostgreSQL 事实来源之间的边界。
+
+## Goals
+
+- 在公开文章详情访问链路中增加 Redis 阅读计数原型。
+- 使用 Redis 原子命令记录文章阅读次数。
+- 明确 key 设计、失败策略、是否防重复、是否落库。
+- 补充 service 测试或最小验证说明。
+
+## Decisions
+
+- key：`article:views:<article_id>`。
+- Redis 命令：使用 `INCR`。
+- 第一版不设置 TTL、不做防重复、不写入 PostgreSQL、不返回阅读数。
+- Redis 自增失败只记录日志，不影响公开文章详情查询。
+- 学习笔记不在本 issue 内完成，后续单独整理到 `.notes/`。
+
+## Tasks
+
+- [x] 设计阅读计数 key：`article:views:<article_id>`。
+- [x] 在 service 层通过接口接入阅读计数器，不让业务主流程散落 Redis 命令。
+- [x] 文章详情被公开访问时递增阅读计数。
+- [x] 明确 Redis 不可用时不影响文章详情查询。
+- [x] 决定第一版不返回阅读数，避免扩大公开 API 契约。
+- [x] 补充 service 测试和 Redis 命令行为测试。
+- [x] 更新 `docs/redis.md`。
+- [x] 学习笔记拆分到后续 issue：`003-redis-counter-learning-notes.md`。
+
+## Non Goals
+
+- 不做完整排行榜。
+- 不做复杂实时统计系统。
+- 第一版不强制做定时批量落库，除非实现时确认范围仍然很小。
+
+## Acceptance Criteria
+
+- 阅读计数使用 Redis 原子操作。
+- PostgreSQL 仍然是文章内容事实来源。
+- Redis 故障不会导致公开文章详情不可访问。
+- `go test ./...` 通过。
