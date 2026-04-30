@@ -28,6 +28,10 @@ type fakeArticleCache struct {
 	deleteFunc func(ctx context.Context, key string) error
 }
 
+type fakeArticleViewCounter struct {
+	incrementFunc func(ctx context.Context, articleID int64) error
+}
+
 func (c *fakeArticleCache) Get(ctx context.Context, key string) (string, error) {
 	if c.getFunc != nil {
 		return c.getFunc(ctx, key)
@@ -47,6 +51,13 @@ func (c *fakeArticleCache) Delete(ctx context.Context, key string) error {
 		return c.deleteFunc(ctx, key)
 	}
 	panic("unexpected call to Delete")
+}
+
+func (c *fakeArticleViewCounter) Increment(ctx context.Context, articleID int64) error {
+	if c.incrementFunc != nil {
+		return c.incrementFunc(ctx, articleID)
+	}
+	panic("unexpected call to Increment")
 }
 
 func (r *fakeArticleRepo) Create(ctx context.Context, article model.Article) (int64, error) {
@@ -518,8 +529,9 @@ func TestArticleService_GetArticle(t *testing.T) {
 				return model.Article{}, sql.ErrNoRows
 			},
 		}
+		counter := &fakeArticleViewCounter{}
 
-		service := NewArticleService(repo)
+		service := NewArticleServiceWithViewCounter(repo, counter)
 
 		_, err := service.GetArticle(context.Background(), 1)
 		assertErrIs(t, err, ErrArticleNotFound)
@@ -531,8 +543,9 @@ func TestArticleService_GetArticle(t *testing.T) {
 				return model.Article{ID: id, State: model.ArticleStateDraft}, nil
 			},
 		}
+		counter := &fakeArticleViewCounter{}
 
-		service := NewArticleService(repo)
+		service := NewArticleServiceWithViewCounter(repo, counter)
 
 		_, err := service.GetArticle(context.Background(), 1)
 		assertErrIs(t, err, ErrArticleNotFound)
@@ -540,13 +553,50 @@ func TestArticleService_GetArticle(t *testing.T) {
 
 	t.Run("success", func(t *testing.T) {
 		wantArticle := model.Article{ID: 1, AuthorID: 10, Title: "title", State: model.ArticleStatePublished}
+		incrementCalled := false
 		repo := &fakeArticleRepo{
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return wantArticle, nil
 			},
 		}
+		counter := &fakeArticleViewCounter{
+			incrementFunc: func(ctx context.Context, articleID int64) error {
+				incrementCalled = true
+				if articleID != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", articleID, wantArticle.ID)
+				}
+				return nil
+			},
+		}
 
-		service := NewArticleService(repo)
+		service := NewArticleServiceWithViewCounter(repo, counter)
+
+		gotArticle, err := service.GetArticle(context.Background(), 1)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticle.ID != wantArticle.ID {
+			t.Fatalf("got article id %d, want %d", gotArticle.ID, wantArticle.ID)
+		}
+		if !incrementCalled {
+			t.Fatal("expected view counter Increment to be called")
+		}
+	})
+
+	t.Run("view counter error does not block article detail", func(t *testing.T) {
+		wantArticle := model.Article{ID: 1, AuthorID: 10, Title: "title", State: model.ArticleStatePublished}
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return wantArticle, nil
+			},
+		}
+		counter := &fakeArticleViewCounter{
+			incrementFunc: func(ctx context.Context, articleID int64) error {
+				return errors.New("redis unavailable")
+			},
+		}
+
+		service := NewArticleServiceWithViewCounter(repo, counter)
 
 		gotArticle, err := service.GetArticle(context.Background(), 1)
 		if err != nil {
