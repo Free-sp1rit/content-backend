@@ -88,6 +88,7 @@ func main() {
 
 	publicListArticlesHandler := http.HandlerFunc(articleHandler.ListPublishedArticles)
 	protectedCreateArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.CreateArticle))
+	publicGetArticleHandler := authMiddleware.OptionalLogin(http.HandlerFunc(articleHandler.GetArticle))
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -136,7 +137,7 @@ func main() {
 		"/me/articles/{id}",
 		authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.UpdateArticle)),
 	)
-	http.HandleFunc("/articles/{id}", articleHandler.GetArticle)
+	http.Handle("/articles/{id}", publicGetArticleHandler)
 
 	server := &http.Server{
 		Addr:              ":" + cfg.Server.Port,

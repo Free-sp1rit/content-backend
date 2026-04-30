@@ -3,6 +3,7 @@ package handler
 import (
 	"content-backend/internal/middleware"
 	"content-backend/internal/model"
+	"content-backend/internal/service"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,7 +15,7 @@ type articleService interface {
 	PublishArticle(ctx context.Context, articleID, currentUserID int64) error
 	ListPublishedArticles(ctx context.Context) ([]model.Article, error)
 	ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error)
-	GetArticle(ctx context.Context, articleID int64) (model.Article, error)
+	GetArticle(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
 	UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error
 }
 
@@ -136,7 +137,15 @@ func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	article, err := h.articleService.GetArticle(r.Context(), id)
+	viewer := service.ArticleViewer{}
+	if currentUserID, ok := middleware.UserIDFromContext(r.Context()); ok {
+		viewer = service.ArticleViewer{
+			UserID:        currentUserID,
+			Authenticated: true,
+		}
+	}
+
+	article, err := h.articleService.GetArticle(r.Context(), id, viewer)
 	if writeArticleServiceError(w, err) {
 		return
 	}

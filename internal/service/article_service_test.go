@@ -29,7 +29,8 @@ type fakeArticleCache struct {
 }
 
 type fakeArticleViewCounter struct {
-	incrementFunc func(ctx context.Context, articleID int64) error
+	incrementFunc              func(ctx context.Context, articleID int64) error
+	incrementAuthenticatedFunc func(ctx context.Context, articleID, userID int64) error
 }
 
 func (c *fakeArticleCache) Get(ctx context.Context, key string) (string, error) {
@@ -58,6 +59,13 @@ func (c *fakeArticleViewCounter) Increment(ctx context.Context, articleID int64)
 		return c.incrementFunc(ctx, articleID)
 	}
 	panic("unexpected call to Increment")
+}
+
+func (c *fakeArticleViewCounter) IncrementAuthenticated(ctx context.Context, articleID, userID int64) error {
+	if c.incrementAuthenticatedFunc != nil {
+		return c.incrementAuthenticatedFunc(ctx, articleID, userID)
+	}
+	panic("unexpected call to IncrementAuthenticated")
 }
 
 func (r *fakeArticleRepo) Create(ctx context.Context, article model.Article) (int64, error) {
@@ -533,7 +541,7 @@ func TestArticleService_GetArticle(t *testing.T) {
 
 		service := NewArticleServiceWithViewCounter(repo, counter)
 
-		_, err := service.GetArticle(context.Background(), 1)
+		_, err := service.GetArticle(context.Background(), 1, ArticleViewer{})
 		assertErrIs(t, err, ErrArticleNotFound)
 	})
 
@@ -547,7 +555,7 @@ func TestArticleService_GetArticle(t *testing.T) {
 
 		service := NewArticleServiceWithViewCounter(repo, counter)
 
-		_, err := service.GetArticle(context.Background(), 1)
+		_, err := service.GetArticle(context.Background(), 1, ArticleViewer{})
 		assertErrIs(t, err, ErrArticleNotFound)
 	})
 
@@ -571,7 +579,7 @@ func TestArticleService_GetArticle(t *testing.T) {
 
 		service := NewArticleServiceWithViewCounter(repo, counter)
 
-		gotArticle, err := service.GetArticle(context.Background(), 1)
+		gotArticle, err := service.GetArticle(context.Background(), 1, ArticleViewer{})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -580,6 +588,52 @@ func TestArticleService_GetArticle(t *testing.T) {
 		}
 		if !incrementCalled {
 			t.Fatal("expected view counter Increment to be called")
+		}
+	})
+
+	t.Run("authenticated viewer increments user view count", func(t *testing.T) {
+		wantArticle := model.Article{ID: 1, AuthorID: 10, Title: "title", State: model.ArticleStatePublished}
+		incrementCalled := false
+		incrementAuthenticatedCalled := false
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return wantArticle, nil
+			},
+		}
+		counter := &fakeArticleViewCounter{
+			incrementFunc: func(ctx context.Context, articleID int64) error {
+				incrementCalled = true
+				if articleID != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", articleID, wantArticle.ID)
+				}
+				return nil
+			},
+			incrementAuthenticatedFunc: func(ctx context.Context, articleID, userID int64) error {
+				incrementAuthenticatedCalled = true
+				if articleID != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", articleID, wantArticle.ID)
+				}
+				if userID != 99 {
+					t.Fatalf("got user id %d, want %d", userID, int64(99))
+				}
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithViewCounter(repo, counter)
+
+		gotArticle, err := service.GetArticle(context.Background(), 1, ArticleViewer{UserID: 99, Authenticated: true})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticle.ID != wantArticle.ID {
+			t.Fatalf("got article id %d, want %d", gotArticle.ID, wantArticle.ID)
+		}
+		if !incrementCalled {
+			t.Fatal("expected view counter Increment to be called")
+		}
+		if !incrementAuthenticatedCalled {
+			t.Fatal("expected view counter IncrementAuthenticated to be called")
 		}
 	})
 
@@ -598,7 +652,34 @@ func TestArticleService_GetArticle(t *testing.T) {
 
 		service := NewArticleServiceWithViewCounter(repo, counter)
 
-		gotArticle, err := service.GetArticle(context.Background(), 1)
+		gotArticle, err := service.GetArticle(context.Background(), 1, ArticleViewer{})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticle.ID != wantArticle.ID {
+			t.Fatalf("got article id %d, want %d", gotArticle.ID, wantArticle.ID)
+		}
+	})
+
+	t.Run("authenticated view counter error does not block article detail", func(t *testing.T) {
+		wantArticle := model.Article{ID: 1, AuthorID: 10, Title: "title", State: model.ArticleStatePublished}
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return wantArticle, nil
+			},
+		}
+		counter := &fakeArticleViewCounter{
+			incrementFunc: func(ctx context.Context, articleID int64) error {
+				return nil
+			},
+			incrementAuthenticatedFunc: func(ctx context.Context, articleID, userID int64) error {
+				return errors.New("redis unavailable")
+			},
+		}
+
+		service := NewArticleServiceWithViewCounter(repo, counter)
+
+		gotArticle, err := service.GetArticle(context.Background(), 1, ArticleViewer{UserID: 99, Authenticated: true})
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
