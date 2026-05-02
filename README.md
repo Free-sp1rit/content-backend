@@ -278,12 +278,13 @@ Authorization: Bearer <token>
 - 文章详情访问 Redis 阅读计数原型
 - 公开文章详情可选 JWT 认证和登录用户阅读去重原型
 - 登录限流 `Retry-After` 响应和可配置阈值
+- 文章发布/编辑基于 PostgreSQL 条件更新保护状态流转一致性
 
 Alpha 阶段后续优先补充：
 
 - README、部署文档和 smoke 验证脚本继续对齐
 - Redis 场景的集成验证和失败边界说明
-- 文章发布/编辑并发安全加固
+- 后续状态动作的并发边界和集成验证
 - PostgreSQL / Redis 可复现集成验证
 - 最小 Web 前端验收界面
 

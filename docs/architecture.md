@@ -38,7 +38,7 @@ client -> nginx -> app -> PostgreSQL
 
 ## Current Risk Areas
 
-- 文章发布和编辑目前存在典型的“先查再改”形态，后续需要针对并发读写补强。
+- 文章发布和编辑已使用 PostgreSQL 条件更新保护作者、状态和 `draft -> published` 流转不变量；后续如加入撤回、审核或已发布编辑，需要继续补状态机边界。
 - Redis 缓存和限流已接入，并已记录当前 key、TTL、失效和失败降级策略；后续需要补真实 Redis/PostgreSQL 集成验证。
 - 部署链路已可用，README 和部署文档应继续随 Compose、环境变量和 smoke 验证同步维护。
 - 当前还缺少可复用 smoke 脚本，部署验证主要依赖文档 checklist。

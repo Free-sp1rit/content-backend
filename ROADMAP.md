@@ -15,6 +15,7 @@
 - Redis 文章阅读计数原型、登录用户阅读去重原型和 Lua 原子化去重计数
 - 反向代理后的可信客户端 IP 解析，用于 IP 登录限流
 - `Retry-After` 登录限流响应和可配置限流阈值
+- 文章发布/编辑使用 PostgreSQL 条件更新保护作者、草稿状态和发布状态流转不变量
 - `gofmt` + `go test ./...` 最小 CI
 
 ## Alpha Direction
@@ -51,6 +52,7 @@ Alpha 开发前文档与 agent instructions 收口
 - `docs/issues/003-redis-counter-learning-notes.md`
 - `docs/issues/004-redis-authenticated-view-dedup.md`
 - `docs/issues/005-redis-view-counter-atomicity-tie-up.md`
+- `docs/issues/006-article-state-consistency.md`
 
 ## Issue Maintenance
 

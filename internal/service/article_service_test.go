@@ -14,12 +14,12 @@ import (
 )
 
 type fakeArticleRepo struct {
-	createFunc         func(ctx context.Context, article model.Article) (int64, error)
-	getByIDFunc        func(ctx context.Context, id int64) (model.Article, error)
-	updateStateFunc    func(ctx context.Context, id int64, state string) error
-	listByStateFunc    func(ctx context.Context, state string) ([]model.Article, error)
-	listByAuthorIDFunc func(ctx context.Context, authorID int64) ([]model.Article, error)
-	updateContentFunc  func(ctx context.Context, id int64, title, content string) error
+	createFunc                        func(ctx context.Context, article model.Article) (int64, error)
+	getByIDFunc                       func(ctx context.Context, id int64) (model.Article, error)
+	updateStateIfAuthorAndStateFunc   func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error)
+	listByStateFunc                   func(ctx context.Context, state string) ([]model.Article, error)
+	listByAuthorIDFunc                func(ctx context.Context, authorID int64) ([]model.Article, error)
+	updateContentIfAuthorAndStateFunc func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error)
 }
 
 type fakeArticleCache struct {
@@ -82,11 +82,11 @@ func (r *fakeArticleRepo) GetByID(ctx context.Context, id int64) (model.Article,
 	panic("unexpected call to GetByID")
 }
 
-func (r *fakeArticleRepo) UpdateState(ctx context.Context, id int64, state string) error {
-	if r.updateStateFunc != nil {
-		return r.updateStateFunc(ctx, id, state)
+func (r *fakeArticleRepo) UpdateStateIfAuthorAndState(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+	if r.updateStateIfAuthorAndStateFunc != nil {
+		return r.updateStateIfAuthorAndStateFunc(ctx, id, authorID, currentState, nextState)
 	}
-	panic("unexpected call to UpdateState")
+	panic("unexpected call to UpdateStateIfAuthorAndState")
 }
 
 func (r *fakeArticleRepo) ListByState(ctx context.Context, state string) ([]model.Article, error) {
@@ -103,11 +103,11 @@ func (r *fakeArticleRepo) ListByAuthorID(ctx context.Context, authorID int64) ([
 	panic("unexpected call to ListByAuthorID")
 }
 
-func (r *fakeArticleRepo) UpdateContent(ctx context.Context, id int64, title, content string) error {
-	if r.updateContentFunc != nil {
-		return r.updateContentFunc(ctx, id, title, content)
+func (r *fakeArticleRepo) UpdateContentIfAuthorAndState(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
+	if r.updateContentIfAuthorAndStateFunc != nil {
+		return r.updateContentIfAuthorAndStateFunc(ctx, id, authorID, state, title, content)
 	}
-	panic("unexpected call to UpdateContent")
+	panic("unexpected call to UpdateContentIfAuthorAndState")
 }
 
 func TestArticleService_CreateArticle(t *testing.T) {
@@ -156,6 +156,9 @@ func TestArticleService_CreateArticle(t *testing.T) {
 func TestArticleService_PublishArticle(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{}, sql.ErrNoRows
 			},
@@ -169,6 +172,9 @@ func TestArticleService_PublishArticle(t *testing.T) {
 
 	t.Run("not author", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{ID: id, AuthorID: 99, State: model.ArticleStateDraft}, nil
 			},
@@ -182,6 +188,9 @@ func TestArticleService_PublishArticle(t *testing.T) {
 
 	t.Run("already published", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{ID: id, AuthorID: 10, State: model.ArticleStatePublished}, nil
 			},
@@ -190,27 +199,42 @@ func TestArticleService_PublishArticle(t *testing.T) {
 		service := NewArticleService(repo)
 
 		err := service.PublishArticle(context.Background(), 1, 10)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
+		assertErrIs(t, err, ErrArticleNotPublishable)
+	})
+
+	t.Run("update error", func(t *testing.T) {
+		wantErr := errors.New("update failed")
+		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return false, wantErr
+			},
 		}
+
+		service := NewArticleService(repo)
+
+		err := service.PublishArticle(context.Background(), 1, 10)
+		assertErrIs(t, err, wantErr)
 	})
 
 	t.Run("success", func(t *testing.T) {
 		updateCalled := false
 		deleteCacheCalled := false
 		repo := &fakeArticleRepo{
-			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
-				return model.Article{ID: id, AuthorID: 10, State: model.ArticleStateDraft}, nil
-			},
-			updateStateFunc: func(ctx context.Context, id int64, state string) error {
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
 				updateCalled = true
 				if id != 1 {
 					t.Fatalf("got id %d, want 1", id)
 				}
-				if state != model.ArticleStatePublished {
-					t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
+				if authorID != 10 {
+					t.Fatalf("got author id %d, want 10", authorID)
 				}
-				return nil
+				if currentState != model.ArticleStateDraft {
+					t.Fatalf("got current state %q, want %q", currentState, model.ArticleStateDraft)
+				}
+				if nextState != model.ArticleStatePublished {
+					t.Fatalf("got next state %q, want %q", nextState, model.ArticleStatePublished)
+				}
+				return true, nil
 			},
 		}
 		cache := &fakeArticleCache{
@@ -230,11 +254,33 @@ func TestArticleService_PublishArticle(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !updateCalled {
-			t.Fatal("expected UpdateState to be called")
+			t.Fatal("expected UpdateStateIfAuthorAndState to be called")
 		}
 		if !deleteCacheCalled {
 			t.Fatal("expected cache Delete to be called")
 		}
+	})
+
+	t.Run("failed condition does not delete cache", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{ID: id, AuthorID: 10, State: model.ArticleStatePublished}, nil
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				t.Fatal("did not expect cache Delete to be called")
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.PublishArticle(context.Background(), 1, 10)
+		assertErrIs(t, err, ErrArticleNotPublishable)
 	})
 }
 
@@ -692,6 +738,9 @@ func TestArticleService_GetArticle(t *testing.T) {
 func TestArticleService_UpdateArticle(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateContentIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{}, sql.ErrNoRows
 			},
@@ -705,6 +754,9 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 
 	t.Run("not author", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateContentIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{ID: id, AuthorID: 200, State: model.ArticleStateDraft}, nil
 			},
@@ -718,6 +770,9 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 
 	t.Run("not editable", func(t *testing.T) {
 		repo := &fakeArticleRepo{
+			updateContentIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
+				return false, nil
+			},
 			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
 				return model.Article{ID: id, AuthorID: 100, State: model.ArticleStatePublished}, nil
 			},
@@ -729,16 +784,33 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 		assertErrIs(t, err, ErrArticleNotEditable)
 	})
 
+	t.Run("update error", func(t *testing.T) {
+		wantErr := errors.New("update failed")
+		repo := &fakeArticleRepo{
+			updateContentIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
+				return false, wantErr
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.UpdateArticle(context.Background(), 1, 100, "new title", "new content")
+		assertErrIs(t, err, wantErr)
+	})
+
 	t.Run("success", func(t *testing.T) {
 		updateCalled := false
 		repo := &fakeArticleRepo{
-			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
-				return model.Article{ID: id, AuthorID: 100, State: model.ArticleStateDraft}, nil
-			},
-			updateContentFunc: func(ctx context.Context, id int64, title, content string) error {
+			updateContentIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
 				updateCalled = true
 				if id != 1 {
 					t.Fatalf("got id %d, want 1", id)
+				}
+				if authorID != 100 {
+					t.Fatalf("got author id %d, want 100", authorID)
+				}
+				if state != model.ArticleStateDraft {
+					t.Fatalf("got state %q, want %q", state, model.ArticleStateDraft)
 				}
 				if title != "new title" {
 					t.Fatalf("got title %q, want %q", title, "new title")
@@ -746,7 +818,7 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 				if content != "new content" {
 					t.Fatalf("got content %q, want %q", content, "new content")
 				}
-				return nil
+				return true, nil
 			},
 		}
 
@@ -757,7 +829,7 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 			t.Fatalf("unexpected error: %v", err)
 		}
 		if !updateCalled {
-			t.Fatal("expected UpdateContent to be called")
+			t.Fatal("expected UpdateContentIfAuthorAndState to be called")
 		}
 	})
 }

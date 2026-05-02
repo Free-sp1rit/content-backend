@@ -67,47 +67,61 @@ func (r *ArticleRepository) GetByID(ctx context.Context, id int64) (model.Articl
 	return article, nil
 }
 
-func (r *ArticleRepository) UpdateState(ctx context.Context, id int64, state string) error {
+func (r *ArticleRepository) UpdateStateIfAuthorAndState(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
 	const query = `
 		UPDATE articles
-		SET state = $2, updated_at = NOW()
-		WHERE id = $1
+		SET state = $4, updated_at = NOW()
+		WHERE id = $1 AND author_id = $2 AND state = $3
 	`
 
-	_, err := r.db.ExecContext(
+	result, err := r.db.ExecContext(
 		ctx,
 		query,
 		id,
-		state,
+		authorID,
+		currentState,
+		nextState,
 	)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rowsAffected > 0, nil
 }
 
-func (r *ArticleRepository) UpdateContent(ctx context.Context, id int64, title string, content string) error {
+func (r *ArticleRepository) UpdateContentIfAuthorAndState(ctx context.Context, id, authorID int64, state, title, content string) (bool, error) {
 	const query = `
 		UPDATE articles
-		SET title = $2, content = $3, updated_at = NOW()
-		WHERE id = $1
+		SET title = $4, content = $5, updated_at = NOW()
+		WHERE id = $1 AND author_id = $2 AND state = $3
 	`
 
-	_, err := r.db.ExecContext(
+	result, err := r.db.ExecContext(
 		ctx,
 		query,
 		id,
+		authorID,
+		state,
 		title,
 		content,
 	)
 
 	if err != nil {
-		return err
+		return false, err
 	}
 
-	return nil
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+
+	return rowsAffected > 0, nil
 }
 
 func (r *ArticleRepository) ListByState(ctx context.Context, state string) ([]model.Article, error) {
