@@ -16,14 +16,15 @@ import (
 var ErrArticleNotFound = errors.New("article not found")
 var ErrPermissionDenied = errors.New("permission denied")
 var ErrArticleNotEditable = errors.New("article not editable")
+var ErrArticleNotPublishable = errors.New("article not publishable")
 
 type articleRepository interface {
 	Create(ctx context.Context, article model.Article) (int64, error)
 	GetByID(ctx context.Context, id int64) (model.Article, error)
-	UpdateState(ctx context.Context, id int64, state string) error
+	UpdateStateIfAuthorAndState(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error)
 	ListByState(ctx context.Context, state string) ([]model.Article, error)
 	ListByAuthorID(ctx context.Context, authorID int64) ([]model.Article, error)
-	UpdateContent(ctx context.Context, id int64, title, content string) error
+	UpdateContentIfAuthorAndState(ctx context.Context, id, authorID int64, state, title, content string) (bool, error)
 }
 
 type articleCache interface {
@@ -91,6 +92,26 @@ func (s *ArticleService) CreateArticle(ctx context.Context, authorID int64, titl
 }
 
 func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentUserID int64) error {
+	updated, err := s.articleRepo.UpdateStateIfAuthorAndState(
+		ctx,
+		articleID,
+		currentUserID,
+		model.ArticleStateDraft,
+		model.ArticleStatePublished,
+	)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return s.explainPublishArticleFailure(ctx, articleID, currentUserID)
+	}
+
+	s.deletePublishedArticlesCache(ctx)
+
+	return nil
+}
+
+func (s *ArticleService) explainPublishArticleFailure(ctx context.Context, articleID, currentUserID int64) error {
 	article, err := s.articleRepo.GetByID(ctx, articleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrArticleNotFound
@@ -103,18 +124,7 @@ func (s *ArticleService) PublishArticle(ctx context.Context, articleID, currentU
 		return ErrPermissionDenied
 	}
 
-	if article.State == model.ArticleStatePublished {
-		return nil
-	}
-
-	err = s.articleRepo.UpdateState(ctx, articleID, model.ArticleStatePublished)
-	if err != nil {
-		return err
-	}
-
-	s.deletePublishedArticlesCache(ctx)
-
-	return nil
+	return ErrArticleNotPublishable
 }
 
 func (s *ArticleService) ListPublishedArticles(ctx context.Context) ([]model.Article, error) {
@@ -190,6 +200,25 @@ func (s *ArticleService) GetArticle(ctx context.Context, articleID int64, viewer
 }
 
 func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error {
+	updated, err := s.articleRepo.UpdateContentIfAuthorAndState(
+		ctx,
+		articleID,
+		currentUserID,
+		model.ArticleStateDraft,
+		title,
+		content,
+	)
+	if err != nil {
+		return err
+	}
+	if !updated {
+		return s.explainUpdateArticleFailure(ctx, articleID, currentUserID)
+	}
+
+	return nil
+}
+
+func (s *ArticleService) explainUpdateArticleFailure(ctx context.Context, articleID, currentUserID int64) error {
 	article, err := s.articleRepo.GetByID(ctx, articleID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrArticleNotFound
@@ -200,15 +229,8 @@ func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUs
 	if article.AuthorID != currentUserID {
 		return ErrPermissionDenied
 	}
-	if article.State != model.ArticleStateDraft {
-		return ErrArticleNotEditable
-	}
 
-	err = s.articleRepo.UpdateContent(ctx, articleID, title, content)
-	if err != nil {
-		return err
-	}
-	return nil
+	return ErrArticleNotEditable
 }
 
 const publishedArticlesCacheKey = "articles:published"

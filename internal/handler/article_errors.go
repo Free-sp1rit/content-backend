@@ -14,6 +14,8 @@ func statusFromArticleServiceError(err error) (int, bool) {
 		return http.StatusForbidden, true
 	case errors.Is(err, service.ErrArticleNotEditable):
 		return http.StatusConflict, true
+	case errors.Is(err, service.ErrArticleNotPublishable):
+		return http.StatusConflict, true
 	default:
 		return 0, false
 	}

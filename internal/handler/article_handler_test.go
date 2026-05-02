@@ -514,6 +514,7 @@ func TestArticleHandler_PublishArticle(t *testing.T) {
 	}{
 		{name: "article not found", serviceErr: service.ErrArticleNotFound, wantStatus: http.StatusNotFound},
 		{name: "permission denied", serviceErr: service.ErrPermissionDenied, wantStatus: http.StatusForbidden},
+		{name: "article not publishable", serviceErr: service.ErrArticleNotPublishable, wantStatus: http.StatusConflict},
 	}
 
 	for _, tc := range publishErrorCases {
