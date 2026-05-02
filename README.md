@@ -49,6 +49,7 @@
 - PostgreSQL
 - Redis（如果不使用 Compose，需要本地或远端 Redis）
 - Docker / Docker Compose（如果使用 Compose 方式运行）
+- `jq`（如果运行 `scripts/smoke.sh`）
 
 ## Database Setup
 
@@ -227,6 +228,23 @@ host -> nginx -> app -> PostgreSQL
 - 发布文章
 - 再次查询公开文章列表，确认新发布文章可见
 - 访问公开文章详情，并验证 Redis `article:views:<article_id>` 阅读计数会递增
+- 重复发布同一篇文章返回 `409`
+- 发布后编辑同一篇文章返回 `409`
+
+项目提供了可复用的 Compose smoke 脚本。脚本只负责验证已经运行的服务，不负责启动、构建或清理 Compose：
+
+```bash
+docker compose --env-file .env.compose up --build -d
+scripts/smoke.sh http://127.0.0.1:8080
+```
+
+如果使用了非默认端口，把实际访问地址传给脚本：
+
+```bash
+scripts/smoke.sh http://127.0.0.1:18080
+```
+
+脚本依赖 `curl`、`jq` 和 Docker Compose，会覆盖 `/healthz`、注册、登录、创建文章、发布文章、公开列表、公开详情、Redis 阅读计数、重复发布冲突和发布后编辑冲突。
 
 ## Test
 

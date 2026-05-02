@@ -67,6 +67,24 @@ host -> nginx -> app -> PostgreSQL
 - 发布文章。
 - 再次查询公开文章列表，确认新发布文章可见。
 - 访问公开文章详情，并按 `docs/redis.md` 的 Redis 阅读计数 smoke 步骤确认 `article:views:<article_id>` 递增。
+- 重复发布同一篇文章返回 `409`。
+- 发布后编辑同一篇文章返回 `409`。
+
+仓库提供了可复用 smoke 脚本：
+
+```bash
+scripts/smoke.sh http://127.0.0.1:8080
+```
+
+脚本只验证已经运行的 Compose 服务，不负责启动、构建或清理环境。推荐部署或更新后按以下顺序执行：
+
+```bash
+docker compose --env-file .env.compose up --build -d
+docker compose --env-file .env.compose ps
+scripts/smoke.sh http://127.0.0.1:8080
+```
+
+如果宿主机端口不是 `8080`，把实际访问地址传给脚本。脚本依赖 `curl`、`jq` 和 Docker Compose；其中 `jq` 用于解析 API JSON 响应。
 
 常见排障入口：
 
@@ -77,7 +95,6 @@ host -> nginx -> app -> PostgreSQL
 
 ## Next Improvements
 
-- 增加可复用 smoke checklist 或脚本。
 - 明确更新部署流程和回滚思路。
 - 补充数据备份和恢复策略。
 - 区分仓库部署规则和服务器私有配置。
