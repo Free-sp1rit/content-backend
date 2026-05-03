@@ -17,6 +17,7 @@ type fakeArticleService struct {
 	listMyArticlesFunc        func(ctx context.Context, authorID int64) ([]model.Article, error)
 	getArticleFunc            func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
 	updateArticleFunc         func(ctx context.Context, articleID, currentUserID int64, title, content string) error
+	deleteArticleFunc         func(ctx context.Context, articleID, currentUserID int64) error
 }
 
 func (s *fakeArticleService) CreateArticle(ctx context.Context, authorID int64, title, content string) (int64, error) {
@@ -59,6 +60,13 @@ func (s *fakeArticleService) UpdateArticle(ctx context.Context, articleID, curre
 		return s.updateArticleFunc(ctx, articleID, currentUserID, title, content)
 	}
 	panic("unexpected call to UpdateArticle")
+}
+
+func (s *fakeArticleService) DeleteArticle(ctx context.Context, articleID, currentUserID int64) error {
+	if s.deleteArticleFunc != nil {
+		return s.deleteArticleFunc(ctx, articleID, currentUserID)
+	}
+	panic("unexpected call to DeleteArticle")
 }
 
 func TestArticleHandler_CreateArticle(t *testing.T) {
@@ -350,6 +358,123 @@ func TestArticleHandler_UpdateArticle(t *testing.T) {
 		}
 		if !called {
 			t.Fatal("expected UpdateArticle to be called")
+		}
+	})
+}
+
+func TestArticleHandler_DeleteArticle(t *testing.T) {
+	t.Run("method not allowed", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performHandlerRequest(http.MethodPut, "/me/articles/123", "", http.HandlerFunc(handler.DeleteArticle))
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+		}
+	})
+
+	t.Run("missing auth context", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performHandlerRequest(http.MethodDelete, "/me/articles/123", "", http.HandlerFunc(handler.DeleteArticle))
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("bad path", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performAuthenticatedHandlerRequest(
+			t,
+			7,
+			http.MethodDelete,
+			"/me/articles/abc",
+			"",
+			http.HandlerFunc(handler.DeleteArticle),
+		)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	errorCases := []struct {
+		name       string
+		serviceErr error
+		wantStatus int
+	}{
+		{name: "article not found", serviceErr: service.ErrArticleNotFound, wantStatus: http.StatusNotFound},
+		{name: "permission denied", serviceErr: service.ErrPermissionDenied, wantStatus: http.StatusForbidden},
+	}
+
+	for _, tc := range errorCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			svc := &fakeArticleService{
+				deleteArticleFunc: func(ctx context.Context, articleID, currentUserID int64) error {
+					called = true
+					return tc.serviceErr
+				},
+			}
+			handler := NewArticleHandler(svc)
+
+			rec := performAuthenticatedHandlerRequest(
+				t,
+				7,
+				http.MethodDelete,
+				"/me/articles/123",
+				"",
+				http.HandlerFunc(handler.DeleteArticle),
+			)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("got status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if !called {
+				t.Fatal("expected DeleteArticle to be called")
+			}
+		})
+	}
+
+	t.Run("success", func(t *testing.T) {
+		called := false
+		svc := &fakeArticleService{
+			deleteArticleFunc: func(ctx context.Context, articleID, currentUserID int64) error {
+				called = true
+				if articleID != 123 {
+					t.Fatalf("got article id %d, want %d", articleID, int64(123))
+				}
+				if currentUserID != 7 {
+					t.Fatalf("got current user id %d, want %d", currentUserID, int64(7))
+				}
+				return nil
+			},
+		}
+		handler := NewArticleHandler(svc)
+
+		rec := performAuthenticatedHandlerRequest(
+			t,
+			7,
+			http.MethodDelete,
+			"/me/articles/123",
+			"",
+			http.HandlerFunc(handler.DeleteArticle),
+		)
+
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusNoContent)
+		}
+		if !called {
+			t.Fatal("expected DeleteArticle to be called")
+		}
+		if rec.Body.Len() != 0 {
+			t.Fatalf("got response body %q, want empty body", rec.Body.String())
 		}
 	})
 }
