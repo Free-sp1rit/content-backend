@@ -53,6 +53,7 @@ Alpha 开发前文档与 agent instructions 收口
 - `docs/issues/004-redis-authenticated-view-dedup.md`
 - `docs/issues/005-redis-view-counter-atomicity-tie-up.md`
 - `docs/issues/006-article-state-consistency.md`
+- `docs/issues/007-compose-smoke-verification.md`
 
 ## Issue Maintenance
 

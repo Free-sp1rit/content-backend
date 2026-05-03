@@ -30,7 +30,7 @@
 - Umbrella：`000-next-phase-roadmap.md`
 - 后续学习笔记：`003-redis-counter-learning-notes.md`
 - 当前收口：文章发布和编辑状态一致性，已完成本地提交，等待 push 和 PR
-- 下一阶段：部署文档与 smoke 验证对齐，待生成或调整 issue
+- 下一阶段：`007-compose-smoke-verification.md`，脚本实现完成，真实 Compose smoke 待具备 `jq` 和 Docker/Compose 环境后补跑
 - 后续任务：根据状态一致性收口结果继续生成或调整
 
 ## Maintenance Rules

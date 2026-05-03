@@ -124,6 +124,7 @@
 - `.codex/*.md` 和 `.notes/*.md` 是本地个人 guidance / 学习笔记，默认不提交；只有用户明确要求把其中内容公共化时，才提炼后迁移到 `AGENTS.md` 或 `docs/`
 - `docs/` 放解释性上下文，例如架构、部署、Redis 运行状态；不要把单次任务 checklist 长期堆在解释文档里
 - `docs/issues/` 放可复制到 GitHub Issues 的具体任务草稿和 AI Agent Notes，适合提交
+- 当用户要求“给出 issue / 生成 issue / 整理 issue”且未明确要求只在对话中展示时，默认应把整理后的 issue 同步落到 `docs/issues/`，并检查 `ROADMAP.md` 和 `docs/issues/README.md` 是否需要同步
 - `.github/ISSUE_TEMPLATE/` 放 GitHub 新建 Issue 模板，适合提交；模板默认使用中文，方便与项目 issue 草稿保持一致
 - `ROADMAP.md` 放公开阶段路线，`README.md` 放新开发者启动、配置、运行、测试和当前状态说明，二者都必须随实际项目阶段更新
 - 每个 issue 收口前，Codex 应主动检查本次改动是否改变了项目阶段、分层规则、部署链路、Redis 场景、并发边界、测试方式、README 或路线图；若有变化，应在同一任务内同步更新相关公共文档，无需等待用户额外提示
