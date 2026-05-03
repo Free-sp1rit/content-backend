@@ -69,6 +69,9 @@ host -> nginx -> app -> PostgreSQL
 - 访问公开文章详情，并按 `docs/redis.md` 的 Redis 阅读计数 smoke 步骤确认 `article:views:<article_id>` 递增。
 - 重复发布同一篇文章返回 `409`。
 - 发布后编辑同一篇文章返回 `409`。
+- 删除文章返回 `204`。
+- 删除后公开详情返回 `404`，公开列表不再包含该文章。
+- 重复删除返回 `404`。
 
 仓库提供了可复用 smoke 脚本：
 
@@ -85,6 +88,16 @@ scripts/smoke.sh http://127.0.0.1:8080
 ```
 
 如果宿主机端口不是 `8080`，把实际访问地址传给脚本。脚本依赖 `curl`、`jq` 和 Docker Compose；其中 `jq` 用于解析 API JSON 响应。
+
+## Database Migration Notes
+
+当前 Compose 会把 `migrations/` 挂载到 PostgreSQL 的 `/docker-entrypoint-initdb.d`。新 volume 首次初始化时会按文件名顺序执行 SQL，例如 `001_init.sql` 后执行 `002_add_article_deleted_at.sql`。
+
+已有 PostgreSQL volume 不会自动重跑这些初始化脚本。升级到支持文章逻辑删除的版本时，需要对已有数据库手动执行新增 migration：
+
+```bash
+psql -U <your_user> -d <your_database> -f migrations/002_add_article_deleted_at.sql
+```
 
 常见排障入口：
 

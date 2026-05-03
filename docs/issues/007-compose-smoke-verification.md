@@ -2,7 +2,7 @@
 
 ## Status
 
-实现完成，真实 Compose smoke 待验证。当前已新增 `scripts/smoke.sh`，并同步 README 与部署文档；本环境缺少 `jq` 和 Docker/Compose，暂不能执行完整 smoke。
+已完成。当前已新增 `scripts/smoke.sh`，并同步 README 与部署文档；真实 Compose smoke 已在本地运行环境通过。
 
 ## Background
 
@@ -93,15 +93,15 @@ scripts/smoke.sh http://127.0.0.1:8080
 - [x] 验证发布后编辑返回 `409`。
 - [x] 更新 `README.md` 的运行和 smoke 验证说明。
 - [x] 更新 `docs/deployment.md` 的部署后验证说明和排障入口。
-- [ ] 运行 `shellcheck`（如本机可用）或至少执行一次脚本手工验证。
+- [x] 运行 `shellcheck`（如本机可用）或至少执行一次脚本手工验证。
 - [x] 运行 `git diff --check` 和 `go test ./...`。
 
 ## Verification
 
 - `bash -n scripts/smoke.sh`
-- `scripts/smoke.sh http://127.0.0.1:8080` 依赖检查按预期失败：当前环境缺少 `jq`
+- `NO_PROXY='*' no_proxy='*' scripts/smoke.sh http://127.0.0.1:8080`
 - 未运行 `shellcheck`：当前环境未安装 `shellcheck`
-- 未运行真实 Compose smoke：当前环境无法访问 Docker/Compose
+- 真实 Compose smoke 通过，覆盖 `/healthz`、注册、登录、创建文章、发布文章、公开列表、公开详情、Redis 阅读计数、重复发布 `409` 和发布后编辑 `409`
 - 已检查 `.github/ISSUE_TEMPLATE/`，当前模板无需同步修改
 
 ## Non Goals

@@ -9,6 +9,7 @@
 - 创建文章草稿
 - 编辑自己的草稿
 - 发布文章
+- 删除自己的文章
 - 查看我的文章列表
 - 查看公开文章列表
 - 查看公开文章详情
@@ -57,7 +58,16 @@
 
 ```bash
 psql -U <your_user> -d <your_database> -f migrations/001_init.sql
+psql -U <your_user> -d <your_database> -f migrations/002_add_article_deleted_at.sql
 ```
+
+如果是已有数据库升级到支持文章逻辑删除的版本，需要至少执行：
+
+```bash
+psql -U <your_user> -d <your_database> -f migrations/002_add_article_deleted_at.sql
+```
+
+Compose 首次创建新的 PostgreSQL volume 时会按文件名顺序执行 `migrations/` 下的 SQL；已有 volume 不会自动重跑这些初始化脚本。
 
 ## Configuration
 
@@ -230,6 +240,10 @@ host -> nginx -> app -> PostgreSQL
 - 访问公开文章详情，并验证 Redis `article:views:<article_id>` 阅读计数会递增
 - 重复发布同一篇文章返回 `409`
 - 发布后编辑同一篇文章返回 `409`
+- 删除文章返回 `204`
+- 删除后公开详情返回 `404`
+- 删除后公开列表不再包含该文章
+- 重复删除返回 `404`
 
 项目提供了可复用的 Compose smoke 脚本。脚本只负责验证已经运行的服务，不负责启动、构建或清理 Compose：
 
@@ -244,7 +258,7 @@ scripts/smoke.sh http://127.0.0.1:8080
 scripts/smoke.sh http://127.0.0.1:18080
 ```
 
-脚本依赖 `curl`、`jq` 和 Docker Compose，会覆盖 `/healthz`、注册、登录、创建文章、发布文章、公开列表、公开详情、Redis 阅读计数、重复发布冲突和发布后编辑冲突。
+脚本依赖 `curl`、`jq` 和 Docker Compose，会覆盖 `/healthz`、注册、登录、创建文章、发布文章、公开列表、公开详情、Redis 阅读计数、重复发布冲突、发布后编辑冲突、删除文章和删除后不可见。
 
 ## Test
 
@@ -267,6 +281,7 @@ go test ./...
 - `POST /articles/publish`
 - `GET /me/articles`
 - `PUT /me/articles/{id}`
+- `DELETE /me/articles/{id}`
 
 其中需要登录态的作者侧接口包括：
 
@@ -274,6 +289,7 @@ go test ./...
 - `POST /articles/publish`
 - `GET /me/articles`
 - `PUT /me/articles/{id}`
+- `DELETE /me/articles/{id}`
 
 这些接口需要携带：
 
@@ -297,12 +313,13 @@ Authorization: Bearer <token>
 - 公开文章详情可选 JWT 认证和登录用户阅读去重原型
 - 登录限流 `Retry-After` 响应和可配置阈值
 - 文章发布/编辑基于 PostgreSQL 条件更新保护状态流转一致性
+- 文章删除使用 `deleted_at` 逻辑删除，并通过 PostgreSQL 条件更新保护删除一致性
 
 Alpha 阶段后续优先补充：
 
 - README、部署文档和 smoke 验证脚本继续对齐
 - Redis 场景的集成验证和失败边界说明
-- 后续状态动作的并发边界和集成验证
+- 后续状态动作的并发边界和集成验证，例如撤回、恢复或审核
 - PostgreSQL / Redis 可复现集成验证
 - 最小 Web 前端验收界面
 
