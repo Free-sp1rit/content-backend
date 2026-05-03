@@ -25,6 +25,7 @@ type articleRepository interface {
 	ListByState(ctx context.Context, state string) ([]model.Article, error)
 	ListByAuthorID(ctx context.Context, authorID int64) ([]model.Article, error)
 	UpdateContentIfAuthorAndState(ctx context.Context, id, authorID int64, state, title, content string) (bool, error)
+	DeleteIfAuthorAndNotDeleted(ctx context.Context, id, authorID int64) (string, bool, error)
 }
 
 type articleCache interface {
@@ -216,6 +217,37 @@ func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUs
 	}
 
 	return nil
+}
+
+func (s *ArticleService) DeleteArticle(ctx context.Context, articleID, currentUserID int64) error {
+	deletedState, deleted, err := s.articleRepo.DeleteIfAuthorAndNotDeleted(ctx, articleID, currentUserID)
+	if err != nil {
+		return err
+	}
+	if !deleted {
+		return s.explainDeleteArticleFailure(ctx, articleID, currentUserID)
+	}
+
+	if deletedState == model.ArticleStatePublished {
+		s.deletePublishedArticlesCache(ctx)
+	}
+
+	return nil
+}
+
+func (s *ArticleService) explainDeleteArticleFailure(ctx context.Context, articleID, currentUserID int64) error {
+	article, err := s.articleRepo.GetByID(ctx, articleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrArticleNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if article.AuthorID != currentUserID {
+		return ErrPermissionDenied
+	}
+
+	return ErrArticleNotFound
 }
 
 func (s *ArticleService) explainUpdateArticleFailure(ctx context.Context, articleID, currentUserID int64) error {
