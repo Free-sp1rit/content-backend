@@ -89,6 +89,16 @@ func main() {
 	publicListArticlesHandler := http.HandlerFunc(articleHandler.ListPublishedArticles)
 	protectedCreateArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.CreateArticle))
 	publicGetArticleHandler := authMiddleware.OptionalLogin(http.HandlerFunc(articleHandler.GetArticle))
+	protectedMyArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodPut:
+			articleHandler.UpdateArticle(w, r)
+		case http.MethodDelete:
+			articleHandler.DeleteArticle(w, r)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -135,7 +145,7 @@ func main() {
 	)
 	http.Handle(
 		"/me/articles/{id}",
-		authMiddleware.RequireLogin(http.HandlerFunc(articleHandler.UpdateArticle)),
+		protectedMyArticleHandler,
 	)
 	http.Handle("/articles/{id}", publicGetArticleHandler)
 

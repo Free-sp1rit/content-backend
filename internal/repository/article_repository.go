@@ -42,7 +42,7 @@ func (r *ArticleRepository) GetByID(ctx context.Context, id int64) (model.Articl
 	const query = `
 		SELECT id, author_id, title, content, state, created_at, updated_at
 		FROM articles
-		WHERE id = $1
+		WHERE id = $1 AND deleted_at IS NULL
 	`
 
 	var article model.Article
@@ -71,7 +71,7 @@ func (r *ArticleRepository) UpdateStateIfAuthorAndState(ctx context.Context, id,
 	const query = `
 		UPDATE articles
 		SET state = $4, updated_at = NOW()
-		WHERE id = $1 AND author_id = $2 AND state = $3
+		WHERE id = $1 AND author_id = $2 AND state = $3 AND deleted_at IS NULL
 	`
 
 	result, err := r.db.ExecContext(
@@ -99,7 +99,7 @@ func (r *ArticleRepository) UpdateContentIfAuthorAndState(ctx context.Context, i
 	const query = `
 		UPDATE articles
 		SET title = $4, content = $5, updated_at = NOW()
-		WHERE id = $1 AND author_id = $2 AND state = $3
+		WHERE id = $1 AND author_id = $2 AND state = $3 AND deleted_at IS NULL
 	`
 
 	result, err := r.db.ExecContext(
@@ -124,11 +124,37 @@ func (r *ArticleRepository) UpdateContentIfAuthorAndState(ctx context.Context, i
 	return rowsAffected > 0, nil
 }
 
+func (r *ArticleRepository) DeleteIfAuthorAndNotDeleted(ctx context.Context, id, authorID int64) (string, bool, error) {
+	const query = `
+		UPDATE articles
+		SET deleted_at = NOW(), updated_at = NOW()
+		WHERE id = $1 AND author_id = $2 AND deleted_at IS NULL
+		RETURNING state
+	`
+
+	var state string
+	err := r.db.QueryRowContext(
+		ctx,
+		query,
+		id,
+		authorID,
+	).Scan(&state)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+
+	return state, true, nil
+}
+
 func (r *ArticleRepository) ListByState(ctx context.Context, state string) ([]model.Article, error) {
 	const query = `
 		SELECT id, author_id, title, content, state, created_at, updated_at
 		FROM articles
-		WHERE state = $1
+		WHERE state = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 
@@ -173,7 +199,7 @@ func (r *ArticleRepository) ListByAuthorID(ctx context.Context, authorID int64) 
 	const query = `
 		SELECT id, author_id, title, content, state, created_at, updated_at
 		FROM articles
-		WHERE author_id = $1
+		WHERE author_id = $1 AND deleted_at IS NULL
 		ORDER BY created_at DESC
 	`
 

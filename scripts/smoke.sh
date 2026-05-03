@@ -166,4 +166,20 @@ update_payload="$(jq -n '{title: "updated after publish", content: "should confl
 request PUT "/me/articles/$article_id" "$update_payload" "$token"
 expect_status 409 "update published article returns 409"
 
+request DELETE "/me/articles/$article_id" "" "$token"
+expect_status 204 "delete article"
+
+request GET "/articles/$article_id"
+expect_status 404 "deleted article detail returns 404"
+
+request GET "/articles"
+expect_status 200 "list published articles after delete"
+if jq -e --argjson article_id "$article_id" 'any(.[]; .id == $article_id)' <<<"$RESPONSE_BODY" >/dev/null; then
+	fail "deleted article $article_id was still found in public list: $RESPONSE_BODY"
+fi
+ok "deleted article hidden from public list"
+
+request DELETE "/me/articles/$article_id" "" "$token"
+expect_status 404 "duplicate delete returns 404"
+
 printf '[ok] smoke completed for user %s and article %s\n' "$user_id" "$article_id"

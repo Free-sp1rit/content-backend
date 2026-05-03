@@ -45,10 +45,10 @@
 ## Current API And Data Model
 
 - 当前公开认证接口是 `POST /register`、`POST /login`
-- 当前文章接口是 `GET /articles`、`POST /articles`、`GET /articles/{id}`、`POST /articles/publish`、`GET /me/articles`、`PUT /me/articles/{id}`
+- 当前文章接口是 `GET /articles`、`POST /articles`、`GET /articles/{id}`、`POST /articles/publish`、`GET /me/articles`、`PUT /me/articles/{id}`、`DELETE /me/articles/{id}`
 - 作者侧接口必须通过 `Authorization: Bearer <token>` 获取登录态；公开文章详情允许匿名访问，但显式携带无效 token 时应返回认证错误
-- `users` 和 `articles` 表由 `migrations/001_init.sql` 初始化；文章状态当前只允许 `draft` 和 `published`
-- 文章内容、作者归属和发布状态以 PostgreSQL 为准；Redis 阅读计数、缓存、限流和去重标记不应反向成为核心内容事实来源
+- `users` 和 `articles` 表由 `migrations/001_init.sql` 初始化，并由后续 migration 演进；文章状态当前只允许 `draft` 和 `published`，文章删除使用 `deleted_at` 逻辑删除
+- 文章内容、作者归属、发布状态和删除状态以 PostgreSQL 为准；Redis 阅读计数、缓存、限流和去重标记不应反向成为核心内容事实来源
 
 ## Error Boundaries
 
@@ -85,7 +85,7 @@
 
 - 本地测试：`gofmt -l .`、`go test ./...`
 - 本地启动：按 `.env.example` 手动导出环境变量后执行 `go run ./cmd/server`
-- 初始化本地数据库：`psql -U <your_user> -d <your_database> -f migrations/001_init.sql`
+- 初始化本地数据库：按文件名顺序执行 `migrations/`，例如 `psql -U <your_user> -d <your_database> -f migrations/001_init.sql` 后继续执行后续 migration
 - 首次 Compose 配置：从 `.env.compose.example`、`app.env.example`、`db.env.example` 复制出本地真实环境文件
 - Compose 启动：`docker compose --env-file .env.compose up --build`，后台运行加 `-d`
 - Compose 检查和排障：`docker compose --env-file .env.compose config`、`docker compose ps`、`docker compose logs app --tail=50`、`docker compose logs nginx --tail=50`、`docker compose logs db --tail=50`、`docker compose logs redis --tail=50`

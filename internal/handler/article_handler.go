@@ -17,6 +17,7 @@ type articleService interface {
 	ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error)
 	GetArticle(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
 	UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error
+	DeleteArticle(ctx context.Context, articleID, currentUserID int64) error
 }
 
 type ArticleHandler struct {
@@ -188,4 +189,30 @@ func (h *ArticleHandler) UpdateArticle(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusOK)
 	return
+}
+
+func (h *ArticleHandler) DeleteArticle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	articleID, err := parseMyArticleID(r.URL.Path)
+	if errors.Is(err, ErrInvalidArticleID) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	err = h.articleService.DeleteArticle(r.Context(), articleID, currentUserID)
+	if writeArticleServiceError(w, err) {
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

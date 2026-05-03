@@ -20,6 +20,7 @@ type fakeArticleRepo struct {
 	listByStateFunc                   func(ctx context.Context, state string) ([]model.Article, error)
 	listByAuthorIDFunc                func(ctx context.Context, authorID int64) ([]model.Article, error)
 	updateContentIfAuthorAndStateFunc func(ctx context.Context, id, authorID int64, state, title, content string) (bool, error)
+	deleteIfAuthorAndNotDeletedFunc   func(ctx context.Context, id, authorID int64) (string, bool, error)
 }
 
 type fakeArticleCache struct {
@@ -108,6 +109,13 @@ func (r *fakeArticleRepo) UpdateContentIfAuthorAndState(ctx context.Context, id,
 		return r.updateContentIfAuthorAndStateFunc(ctx, id, authorID, state, title, content)
 	}
 	panic("unexpected call to UpdateContentIfAuthorAndState")
+}
+
+func (r *fakeArticleRepo) DeleteIfAuthorAndNotDeleted(ctx context.Context, id, authorID int64) (string, bool, error) {
+	if r.deleteIfAuthorAndNotDeletedFunc != nil {
+		return r.deleteIfAuthorAndNotDeletedFunc(ctx, id, authorID)
+	}
+	panic("unexpected call to DeleteIfAuthorAndNotDeleted")
 }
 
 func TestArticleService_CreateArticle(t *testing.T) {
@@ -831,5 +839,173 @@ func TestArticleService_UpdateArticle(t *testing.T) {
 		if !updateCalled {
 			t.Fatal("expected UpdateContentIfAuthorAndState to be called")
 		}
+	})
+}
+
+func TestArticleService_DeleteArticle(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{}, sql.ErrNoRows
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, ErrArticleNotFound)
+	})
+
+	t.Run("not author", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{ID: id, AuthorID: 200, State: model.ArticleStatePublished}, nil
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, ErrPermissionDenied)
+	})
+
+	t.Run("condition failed for current author returns not found", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{ID: id, AuthorID: 100, State: model.ArticleStatePublished}, nil
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, ErrArticleNotFound)
+	})
+
+	t.Run("delete error", func(t *testing.T) {
+		wantErr := errors.New("delete failed")
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, wantErr
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, wantErr)
+	})
+
+	t.Run("explain error", func(t *testing.T) {
+		wantErr := errors.New("get failed")
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{}, wantErr
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, wantErr)
+	})
+
+	t.Run("delete draft does not delete published articles cache", func(t *testing.T) {
+		deleteCalled := false
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				if id != 1 {
+					t.Fatalf("got id %d, want 1", id)
+				}
+				if authorID != 100 {
+					t.Fatalf("got author id %d, want 100", authorID)
+				}
+				return model.ArticleStateDraft, true, nil
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				deleteCalled = true
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if deleteCalled {
+			t.Fatal("did not expect cache Delete to be called")
+		}
+	})
+
+	t.Run("delete published article deletes published articles cache", func(t *testing.T) {
+		deleteCacheCalled := false
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				if id != 1 {
+					t.Fatalf("got id %d, want 1", id)
+				}
+				if authorID != 100 {
+					t.Fatalf("got author id %d, want 100", authorID)
+				}
+				return model.ArticleStatePublished, true, nil
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				deleteCacheCalled = true
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !deleteCacheCalled {
+			t.Fatal("expected cache Delete to be called")
+		}
+	})
+
+	t.Run("failed condition does not delete cache", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return "", false, nil
+			},
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{}, sql.ErrNoRows
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				t.Fatal("did not expect cache Delete to be called")
+				return nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		assertErrIs(t, err, ErrArticleNotFound)
 	})
 }
