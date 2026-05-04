@@ -99,6 +99,24 @@ scripts/smoke.sh http://127.0.0.1:8080
 psql -U <your_user> -d <your_database> -f migrations/002_add_article_deleted_at.sql
 ```
 
+如果需要验证 migration 与 repository 真实 SQL 行为，使用一次性测试库或专用测试库运行 opt-in 集成测试：
+
+```bash
+CONTENT_BACKEND_TEST_DATABASE_DSN='postgres://user:password@127.0.0.1:5432/content_backend_test?sslmode=disable' go test ./internal/repository -run Integration -count=1
+```
+
+该测试会重建目标数据库的 `public` schema；测试库名必须包含 `test`，不要指向开发库或生产库。
+
+当前 Compose 配置没有把 PostgreSQL 端口暴露到宿主机。如果需要在 Compose 网络内验证，可以使用一次性 Go 容器：
+
+```bash
+docker compose --env-file .env.compose exec -T db dropdb --if-exists -U content_dev content_backend_test
+docker compose --env-file .env.compose exec -T db createdb -U content_dev content_backend_test
+docker run --rm --network content-backend_default -v "$PWD":/app -w /app \
+  -e CONTENT_BACKEND_TEST_DATABASE_DSN='postgres://content_dev:devpass@db:5432/content_backend_test?sslmode=disable' \
+  golang:1.22.5 go test ./internal/repository -run Integration -count=1
+```
+
 常见排障入口：
 
 - `docker compose logs nginx --tail=50`
