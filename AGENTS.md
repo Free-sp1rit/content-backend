@@ -105,6 +105,7 @@
 - CI 当前执行格式检查和 `go test ./...`，本地验证口径应与 CI 保持一致
 - 修改 service 业务规则时优先补 service 单测；修改 HTTP 行为时补 handler/middleware 测试
 - 修改 repository、migration、Docker Compose 或 Redis 真实交互时，优先补可运行的集成验证或清晰的手工验证步骤
+- PostgreSQL repository 集成测试必须通过 `CONTENT_BACKEND_TEST_DATABASE_DSN` 显式启用；默认 `go test ./...` 不依赖真实数据库，测试数据库名必须包含 `test`
 - 修改 Docker Compose、Dockerfile、环境变量或 nginx 配置时，至少执行 Compose 配置检查，并按风险补充启动或 smoke 验证
 - 修改 Redis 场景时，验收必须说明 key、TTL、原子性、失效策略、失败降级和真实 Redis 验证方式
 - 修改公开 API 行为时，验收必须覆盖状态码、响应体、认证要求和错误映射

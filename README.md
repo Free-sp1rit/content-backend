@@ -266,6 +266,24 @@ scripts/smoke.sh http://127.0.0.1:18080
 go test ./...
 ```
 
+默认测试不依赖真实 PostgreSQL。若需要验证 migration 和 repository 真实 SQL 行为，请准备一次性测试库或专用测试库，库名必须包含 `test`，然后显式设置测试 DSN：
+
+```bash
+CONTENT_BACKEND_TEST_DATABASE_DSN='postgres://user:password@127.0.0.1:5432/content_backend_test?sslmode=disable' go test ./internal/repository -run Integration -count=1
+```
+
+该集成测试会重建测试库中的 `public` schema，并按文件名顺序执行 `migrations/*.sql`。不要把开发库或生产库配置到 `CONTENT_BACKEND_TEST_DATABASE_DSN`。
+
+如果使用当前 Compose 网络且 PostgreSQL 没有暴露到宿主机，可以用一次性 Go 容器加入 Compose 网络运行：
+
+```bash
+docker compose --env-file .env.compose exec -T db dropdb --if-exists -U content_dev content_backend_test
+docker compose --env-file .env.compose exec -T db createdb -U content_dev content_backend_test
+docker run --rm --network content-backend_default -v "$PWD":/app -w /app \
+  -e CONTENT_BACKEND_TEST_DATABASE_DSN='postgres://content_dev:devpass@db:5432/content_backend_test?sslmode=disable' \
+  golang:1.22.5 go test ./internal/repository -run Integration -count=1
+```
+
 ## API Overview
 
 ### Auth

@@ -29,9 +29,10 @@
 - 已完成：`006-article-state-consistency.md`
 - 已完成：`007-compose-smoke-verification.md`
 - 已完成：`008-article-logical-delete-consistency.md`
+- 已完成：`009-postgres-migration-verification.md`
 - Umbrella：`000-next-phase-roadmap.md`
 - 后续学习笔记：`003-redis-counter-learning-notes.md`
-- 后续任务：根据文章逻辑删除收口结果继续生成或调整
+- 后续任务：根据 PostgreSQL migration 验证收口结果继续生成或调整
 
 ## Maintenance Rules
 
