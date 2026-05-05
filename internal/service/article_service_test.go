@@ -290,6 +290,29 @@ func TestArticleService_PublishArticle(t *testing.T) {
 		err := service.PublishArticle(context.Background(), 1, 10)
 		assertErrIs(t, err, ErrArticleNotPublishable)
 	})
+
+	t.Run("cache delete error does not block success", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				return true, nil
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return errors.New("redis unavailable")
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.PublishArticle(context.Background(), 1, 10)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
 }
 
 func TestArticleService_ListPublishedArticles(t *testing.T) {
@@ -554,6 +577,128 @@ func TestArticleService_ListPublishedArticles(t *testing.T) {
 		}
 		if repoCallCount.Load() != 1 {
 			t.Fatalf("got repository calls %d, want 1", repoCallCount.Load())
+		}
+	})
+}
+
+func TestArticleService_PublishedArticlesCacheConsistency(t *testing.T) {
+	t.Run("publish invalidates warmed empty cache and reloads published article", func(t *testing.T) {
+		ctx := context.Background()
+		publishedArticle := model.Article{ID: 1, AuthorID: 10, Title: "published", State: model.ArticleStatePublished}
+		articlesByState := []model.Article{}
+		cache := newMemoryArticleCache(t)
+
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				if state != model.ArticleStatePublished {
+					t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
+				}
+				return append([]model.Article(nil), articlesByState...), nil
+			},
+			updateStateIfAuthorAndStateFunc: func(ctx context.Context, id, authorID int64, currentState, nextState string) (bool, error) {
+				if id != publishedArticle.ID {
+					t.Fatalf("got id %d, want %d", id, publishedArticle.ID)
+				}
+				if authorID != publishedArticle.AuthorID {
+					t.Fatalf("got author id %d, want %d", authorID, publishedArticle.AuthorID)
+				}
+				if currentState != model.ArticleStateDraft {
+					t.Fatalf("got current state %q, want %q", currentState, model.ArticleStateDraft)
+				}
+				if nextState != model.ArticleStatePublished {
+					t.Fatalf("got next state %q, want %q", nextState, model.ArticleStatePublished)
+				}
+				articlesByState = []model.Article{publishedArticle}
+				return true, nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		gotArticles, err := service.ListPublishedArticles(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error warming cache: %v", err)
+		}
+		if len(gotArticles) != 0 {
+			t.Fatalf("got %d warmed articles, want 0", len(gotArticles))
+		}
+		if gotCached := cache.value(publishedArticlesCacheKey); gotCached != "[]" {
+			t.Fatalf("got warmed cache %q, want []", gotCached)
+		}
+
+		err = service.PublishArticle(ctx, publishedArticle.ID, publishedArticle.AuthorID)
+		if err != nil {
+			t.Fatalf("unexpected publish error: %v", err)
+		}
+		if gotCached := cache.value(publishedArticlesCacheKey); gotCached != "" {
+			t.Fatalf("got cache after publish %q, want empty", gotCached)
+		}
+
+		gotArticles, err = service.ListPublishedArticles(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error after publish: %v", err)
+		}
+		if !containsArticleID(gotArticles, publishedArticle.ID) {
+			t.Fatalf("expected published article %d after cache invalidation", publishedArticle.ID)
+		}
+	})
+
+	t.Run("delete published invalidates warmed cache and reloads without deleted article", func(t *testing.T) {
+		ctx := context.Background()
+		deletedArticle := model.Article{ID: 2, AuthorID: 20, Title: "deleted", State: model.ArticleStatePublished}
+		remainingArticle := model.Article{ID: 3, AuthorID: 21, Title: "remaining", State: model.ArticleStatePublished}
+		articlesByState := []model.Article{deletedArticle, remainingArticle}
+		cache := newMemoryArticleCache(t)
+
+		repo := &fakeArticleRepo{
+			listByStateFunc: func(ctx context.Context, state string) ([]model.Article, error) {
+				if state != model.ArticleStatePublished {
+					t.Fatalf("got state %q, want %q", state, model.ArticleStatePublished)
+				}
+				return append([]model.Article(nil), articlesByState...), nil
+			},
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				if id != deletedArticle.ID {
+					t.Fatalf("got id %d, want %d", id, deletedArticle.ID)
+				}
+				if authorID != deletedArticle.AuthorID {
+					t.Fatalf("got author id %d, want %d", authorID, deletedArticle.AuthorID)
+				}
+				articlesByState = []model.Article{remainingArticle}
+				return model.ArticleStatePublished, true, nil
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		gotArticles, err := service.ListPublishedArticles(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error warming cache: %v", err)
+		}
+		if !containsArticleID(gotArticles, deletedArticle.ID) {
+			t.Fatalf("expected warmed cache result to include article %d", deletedArticle.ID)
+		}
+		if gotCached := cache.value(publishedArticlesCacheKey); !cacheValueContainsArticleID(t, gotCached, deletedArticle.ID) {
+			t.Fatalf("expected warmed cache to include article %d, got %q", deletedArticle.ID, gotCached)
+		}
+
+		err = service.DeleteArticle(ctx, deletedArticle.ID, deletedArticle.AuthorID)
+		if err != nil {
+			t.Fatalf("unexpected delete error: %v", err)
+		}
+		if gotCached := cache.value(publishedArticlesCacheKey); gotCached != "" {
+			t.Fatalf("got cache after delete %q, want empty", gotCached)
+		}
+
+		gotArticles, err = service.ListPublishedArticles(ctx)
+		if err != nil {
+			t.Fatalf("unexpected error after delete: %v", err)
+		}
+		if containsArticleID(gotArticles, deletedArticle.ID) {
+			t.Fatalf("expected deleted article %d to be hidden after cache invalidation", deletedArticle.ID)
+		}
+		if !containsArticleID(gotArticles, remainingArticle.ID) {
+			t.Fatalf("expected remaining article %d to stay visible", remainingArticle.ID)
 		}
 	})
 }
@@ -1008,4 +1153,97 @@ func TestArticleService_DeleteArticle(t *testing.T) {
 		err := service.DeleteArticle(context.Background(), 1, 100)
 		assertErrIs(t, err, ErrArticleNotFound)
 	})
+
+	t.Run("cache delete error does not block published delete", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			deleteIfAuthorAndNotDeletedFunc: func(ctx context.Context, id, authorID int64) (string, bool, error) {
+				return model.ArticleStatePublished, true, nil
+			},
+		}
+		cache := &fakeArticleCache{
+			deleteFunc: func(ctx context.Context, key string) error {
+				if key != publishedArticlesCacheKey {
+					t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+				}
+				return errors.New("redis unavailable")
+			},
+		}
+
+		service := NewArticleServiceWithCache(repo, cache)
+
+		err := service.DeleteArticle(context.Background(), 1, 100)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}
+
+type memoryArticleCache struct {
+	t      *testing.T
+	mu     sync.Mutex
+	values map[string]string
+}
+
+func newMemoryArticleCache(t *testing.T) *memoryArticleCache {
+	t.Helper()
+	return &memoryArticleCache{
+		t:      t,
+		values: make(map[string]string),
+	}
+}
+
+func (c *memoryArticleCache) Get(ctx context.Context, key string) (string, error) {
+	if key != publishedArticlesCacheKey {
+		c.t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.values[key], nil
+}
+
+func (c *memoryArticleCache) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
+	if key != publishedArticlesCacheKey {
+		c.t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+	}
+	if ttl != publishedArticlesCacheTTL {
+		c.t.Fatalf("got ttl %v, want %v", ttl, publishedArticlesCacheTTL)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.values[key] = value
+	return nil
+}
+
+func (c *memoryArticleCache) Delete(ctx context.Context, key string) error {
+	if key != publishedArticlesCacheKey {
+		c.t.Fatalf("got cache key %q, want %q", key, publishedArticlesCacheKey)
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.values, key)
+	return nil
+}
+
+func (c *memoryArticleCache) value(key string) string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.values[key]
+}
+
+func containsArticleID(articles []model.Article, id int64) bool {
+	for _, article := range articles {
+		if article.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func cacheValueContainsArticleID(t *testing.T, value string, id int64) bool {
+	t.Helper()
+	var articles []model.Article
+	if err := json.Unmarshal([]byte(value), &articles); err != nil {
+		t.Fatalf("unmarshal cached value: %v", err)
+	}
+	return containsArticleID(articles, id)
 }
