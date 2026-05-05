@@ -19,6 +19,7 @@
 - Go
 - PostgreSQL
 - Redis
+- Node.js / npm（如果运行 `web/` 前端）
 - 标准库 `net/http`
 - `github.com/lib/pq`
 - `github.com/redis/go-redis/v9`
@@ -43,6 +44,8 @@
   数据库初始化 SQL
 - `docs`
   架构、部署、Redis 和 issue 草稿等项目上下文
+- `web`
+  Vite + React + TypeScript 最小前端验收界面
 
 ## Requirements
 
@@ -51,6 +54,7 @@
 - Redis（如果不使用 Compose，需要本地或远端 Redis）
 - Docker / Docker Compose（如果使用 Compose 方式运行）
 - `jq`（如果运行 `scripts/smoke.sh`）
+- Node.js 20.19+ 或 22.12+（如果运行 `web/` 前端）
 
 ## Database Setup
 
@@ -262,6 +266,48 @@ scripts/smoke.sh http://127.0.0.1:18080
 
 脚本依赖 `curl`、`jq` 和 Docker Compose，会覆盖 `/healthz`、注册、登录、创建文章、发布前公开列表缓存预热、发布文章、发布后公开列表缓存失效、公开详情、Redis 阅读计数、重复发布冲突、发布后编辑冲突、删除前公开列表缓存预热、删除文章和删除后不可见。
 
+## Web Frontend
+
+仓库内的 `web/` 是一个 Vite + React + TypeScript 最小前端，用来从浏览器侧验收后端 API 主链路。第一版前端只用于本地开发和人工验收，不接入 Docker Compose / nginx 静态部署。
+
+前端开发前，需要先确保后端可通过以下地址访问：
+
+```text
+http://127.0.0.1:8080
+```
+
+可以使用本地 `go run ./cmd/server`，也可以使用 Compose：
+
+```bash
+docker compose --env-file .env.compose up --build -d
+```
+
+启动前端开发服务器：
+
+```bash
+cd web
+npm install
+npm run dev -- --host 127.0.0.1
+```
+
+浏览器访问：
+
+```text
+http://127.0.0.1:5173
+```
+
+前端通过 Vite dev server proxy 转发 API 请求到后端，因此前端代码使用相对路径请求 `/healthz`、`/register`、`/login`、`/articles` 和 `/me/articles`，不需要第一版后端额外开启 CORS。
+
+`web/go.mod` 只用于给 Go 工具链划定模块边界，避免在仓库根目录运行 `go test ./...` 时扫描 `web/node_modules`。
+
+前端验证命令：
+
+```bash
+cd web
+npm run lint
+npm run build
+```
+
 ## Test
 
 ```bash
@@ -334,6 +380,7 @@ Authorization: Bearer <token>
 - 登录限流 `Retry-After` 响应和可配置阈值
 - 文章发布/编辑基于 PostgreSQL 条件更新保护状态流转一致性
 - 文章删除使用 `deleted_at` 逻辑删除，并通过 PostgreSQL 条件更新保护删除一致性
+- `web/` 最小前端验收界面，覆盖注册、登录、公开文章、作者文章、创建、编辑、发布和删除
 
 Alpha 阶段后续优先补充：
 
@@ -341,7 +388,7 @@ Alpha 阶段后续优先补充：
 - Redis 场景的集成验证和失败边界说明
 - 后续状态动作的并发边界和集成验证，例如撤回、恢复或审核
 - PostgreSQL / Redis 可复现集成验证
-- 最小 Web 前端验收界面
+- 前端生产静态部署或更多产品化交互
 
 ## Project Guidance
 

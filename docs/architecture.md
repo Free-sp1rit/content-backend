@@ -15,6 +15,7 @@ client -> nginx -> app -> PostgreSQL
 - `app`：Go HTTP 服务，负责认证、文章用例、缓存和限流编排。
 - `PostgreSQL`：核心事实来源，保存用户和文章数据。
 - `Redis`：运行态能力，当前用于登录失败限流、公开文章列表缓存、防击穿辅助、文章阅读计数和登录用户阅读去重原型。
+- `web`：本地开发期的 Vite + React + TypeScript 前端，用来验收公开 API；第一版不进入 Compose 运行链路。
 
 ## Code Layers
 
@@ -26,6 +27,7 @@ client -> nginx -> app -> PostgreSQL
 - `internal/repository`：数据库访问，不承载业务语义解释。
 - `internal/auth`：token 签发与校验。
 - `internal/model`：核心数据结构和业务常量。
+- `web`：前端验收界面，只消费后端公开 API，不承载后端权限、状态流转或一致性事实。
 
 ## Design Rules
 
@@ -34,6 +36,7 @@ client -> nginx -> app -> PostgreSQL
 - 业务规则优先放在 `service`，HTTP 细节优先放在 `handler`。
 - 数据库事务、条件更新和唯一约束可以放在 repository 能力中，但是否使用这些能力由 service 用例决定。
 - 新增接口时要先明确业务动作，不把多个职责混进一个入口。
+- 前端可以做按钮禁用、表单提示和登录态保存，但不能替代后端权限判断和状态规则。
 - agent instructions 和 issue 草稿属于工程协作资产；长期规则进入 `AGENTS.md`，解释性上下文进入 `docs/`，单次任务进入 `docs/issues/`。
 
 ## Current Risk Areas

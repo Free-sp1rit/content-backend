@@ -20,6 +20,7 @@
 - PostgreSQL 是核心事实来源，Go 侧通过 `database/sql` + `github.com/lib/pq` 访问
 - Redis 使用 `github.com/redis/go-redis/v9`，测试可使用 `github.com/go-redis/redismock/v9`
 - 密码哈希使用 `golang.org/x/crypto`，缓存击穿合并使用 `golang.org/x/sync/singleflight`
+- 前端验收界面位于 `web/`，使用 Vite + React + TypeScript；第一版用于本地开发和人工验收，不进入 Compose 运行链路
 - Compose 运行形态是 `host -> nginx -> app -> PostgreSQL/Redis`，其中 nginx 是宿主机入口，app 在内部网络监听 `8080`
 
 ## Current Phase Direction
@@ -84,6 +85,8 @@
 ## Common Commands
 
 - 本地测试：`gofmt -l .`、`go test ./...`
+- 前端验证：`cd web && npm run lint`、`cd web && npm run build`
+- 前端开发：后端先监听 `127.0.0.1:8080`，再执行 `cd web && npm run dev -- --host 127.0.0.1`
 - 本地启动：按 `.env.example` 手动导出环境变量后执行 `go run ./cmd/server`
 - 初始化本地数据库：按文件名顺序执行 `migrations/`，例如 `psql -U <your_user> -d <your_database> -f migrations/001_init.sql` 后继续执行后续 migration
 - 首次 Compose 配置：从 `.env.compose.example`、`app.env.example`、`db.env.example` 复制出本地真实环境文件
@@ -108,6 +111,7 @@
 - PostgreSQL repository 集成测试必须通过 `CONTENT_BACKEND_TEST_DATABASE_DSN` 显式启用；默认 `go test ./...` 不依赖真实数据库，测试数据库名必须包含 `test`
 - 修改 Docker Compose、Dockerfile、环境变量或 nginx 配置时，至少执行 Compose 配置检查，并按风险补充启动或 smoke 验证
 - 修改 Redis 场景时，验收必须说明 key、TTL、原子性、失效策略、失败降级和真实 Redis 验证方式
+- 修改 `web/` 前端时，至少运行 `cd web && npm run lint` 和 `cd web && npm run build`；涉及 API 行为时应通过 Vite proxy 或手工浏览器流程验证
 - 修改公开 API 行为时，验收必须覆盖状态码、响应体、认证要求和错误映射
 - README、示例环境变量和部署说明属于可验证交付的一部分，不能长期落后于代码
 
