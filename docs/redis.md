@@ -50,7 +50,7 @@ login:failures:ip:<client-ip>
 
 ### Published Articles Cache
 
-当前公开文章列表使用 Redis 缓存，并在发布文章后删除缓存。
+当前公开文章列表使用 Redis 缓存，并在发布文章或删除已发布文章后删除缓存。
 
 当前缓存设计：
 
@@ -59,20 +59,26 @@ login:failures:ip:<client-ip>
 - 缓存内容：公开文章列表 JSON；空列表会缓存为 `[]`
 - 缓存范围：只缓存公开列表，不缓存作者侧私有文章列表
 - miss 后重建：先查 Redis；miss 后进入 `singleflight`；组内再次查 Redis；仍 miss 才查 PostgreSQL 并写回 Redis
-- 失效时机：文章发布状态更新成功后删除 `articles:published`
+- 失效时机：文章发布状态更新成功后删除 `articles:published`；删除 published 文章成功后也删除 `articles:published`
 
 失败策略：
 
 - Redis 读取失败时记录为 miss，回退到 PostgreSQL。
 - Redis 写入失败时记录日志，仍返回 PostgreSQL 查询结果。
-- 发布成功后删除缓存失败时记录日志；如果 Redis 中仍有旧值，最坏会保留到 TTL 到期。
+- 发布成功或删除 published 文章成功后，删除缓存失败时记录日志；如果 Redis 中仍有旧值，最坏会保留到 TTL 到期。
 - PostgreSQL 仍是公开文章事实来源，Redis 只影响缓存命中和短期新鲜度。
 
 当前并发边界：
 
 - 并发缓存 miss 由应用内 `singleflight` 合并，减少同一进程内同时打到 PostgreSQL 的请求。
 - `singleflight` 不是跨进程锁；如果未来多副本部署，需要重新评估跨实例击穿保护。
-- 发布和编辑的状态流转仍需在文章并发加固任务中继续处理。
+- 发布、编辑和删除的状态流转由 PostgreSQL 条件更新保护；Redis 缓存只做派生列表的短期加速。
+
+当前验证方式：
+
+- service 测试覆盖缓存预热后发布、删除 published 文章、重新查询公开列表的流程。
+- `RedisCache` 命令测试覆盖 `GET` miss、`SET` TTL 和 `DEL` 行为。
+- Compose smoke 脚本从 HTTP 入口覆盖“发布前预热公开列表缓存 -> 发布 -> 公开列表可见”和“删除前预热公开列表缓存 -> 删除 -> 公开列表不可见”。
 
 ### Article View Counter Prototype
 

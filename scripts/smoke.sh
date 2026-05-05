@@ -42,6 +42,7 @@ request() {
 	local response_file="$TMP_DIR/response.json"
 	local curl_args=(
 		-sS
+		--noproxy "*"
 		-o "$response_file"
 		-w "%{http_code}"
 		-X "$method"
@@ -102,7 +103,7 @@ redis_get() {
 	docker compose --env-file "$COMPOSE_ENV_FILE" exec -T redis redis-cli --raw GET "$key" | tr -d '\r'
 }
 
-health_body="$(curl -fsS "$BASE_URL/healthz")" || fail "healthz request failed"
+health_body="$(curl --noproxy "*" -fsS "$BASE_URL/healthz")" || fail "healthz request failed"
 if [[ "$health_body" != "ok" ]]; then
 	fail "healthz returned $health_body, want ok"
 fi
@@ -129,12 +130,18 @@ request POST "/articles" "$create_payload" "$token"
 expect_status 201 "create article"
 article_id="$(json_field '.id' 'created article id')"
 
+request GET "/articles"
+expect_status 200 "warm published articles cache before publish"
+if jq -e --argjson article_id "$article_id" 'any(.[]; .id == $article_id)' <<<"$RESPONSE_BODY" >/dev/null; then
+	fail "draft article $article_id was unexpectedly found in public list before publish: $RESPONSE_BODY"
+fi
+
 publish_payload="$(jq -n --argjson article_id "$article_id" '{article_id: $article_id}')"
 request POST "/articles/publish" "$publish_payload" "$token"
 expect_status 200 "publish article"
 
 request GET "/articles"
-expect_status 200 "list published articles"
+expect_status 200 "list published articles after publish"
 if ! jq -e --argjson article_id "$article_id" --arg title "$title" \
 	'any(.[]; .id == $article_id and .title == $title and .state == "published")' <<<"$RESPONSE_BODY" >/dev/null; then
 	fail "published article $article_id was not found in public list: $RESPONSE_BODY"
@@ -165,6 +172,13 @@ expect_status 409 "duplicate publish returns 409"
 update_payload="$(jq -n '{title: "updated after publish", content: "should conflict"}')"
 request PUT "/me/articles/$article_id" "$update_payload" "$token"
 expect_status 409 "update published article returns 409"
+
+request GET "/articles"
+expect_status 200 "warm published articles cache before delete"
+if ! jq -e --argjson article_id "$article_id" \
+	'any(.[]; .id == $article_id and .state == "published")' <<<"$RESPONSE_BODY" >/dev/null; then
+	fail "published article $article_id was not found before delete cache warm: $RESPONSE_BODY"
+fi
 
 request DELETE "/me/articles/$article_id" "" "$token"
 expect_status 204 "delete article"
