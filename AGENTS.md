@@ -31,7 +31,7 @@
 - 常见并发场景：优先处理状态流转、缓存一致性、重复请求、计数器和读写竞争
 - 最小 Web 产品：在后端与运行能力稳定后再补，用于验收成果和前后端协作，不反向扩大后端范围
 
-近期优先级按 `ROADMAP.md` 和 `docs/issues/` 推进：部署文档与 smoke 验证对齐、文章发布/编辑并发安全加固、PostgreSQL / Redis 集成验证、最小 Web 前端验收。
+近期优先级按 `ROADMAP.md` 和 `docs/issues/` 推进：部署文档与 smoke 验证对齐、文章发布/编辑并发安全加固、PostgreSQL migration/repository 真实 SQL 验证、文章公开列表 Redis 缓存一致性验证、最小 Web 前端验收。
 
 ## Layer Boundaries
 

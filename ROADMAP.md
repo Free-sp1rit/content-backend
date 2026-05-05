@@ -18,6 +18,7 @@
 - 文章发布/编辑使用 PostgreSQL 条件更新保护作者、草稿状态和发布状态流转不变量
 - 文章删除使用 `deleted_at` 逻辑删除，并通过 PostgreSQL 条件更新保护删除一致性
 - PostgreSQL migration 与 repository 真实 SQL 行为已有 opt-in 集成验证
+- 文章公开列表 Redis 缓存一致性已有 service 流程测试、RedisCache 命令测试和缓存预热 smoke 验证
 - Docker Compose smoke 验证脚本覆盖 nginx、app、PostgreSQL、Redis 和核心 HTTP 链路
 - `gofmt` + `go test ./...` 最小 CI
 
@@ -42,7 +43,7 @@ Alpha 开发前文档与 agent instructions 收口
 -> 文章发布/编辑并发安全改造
 -> 文章逻辑删除与删除一致性改造
 -> PostgreSQL migration 与 repository 真实 SQL 验证
--> PostgreSQL / Redis 集成验证
+-> 文章公开列表 Redis 缓存一致性验证
 -> 最小 Web 前端验收
 ```
 
@@ -61,6 +62,7 @@ Alpha 开发前文档与 agent instructions 收口
 - `docs/issues/007-compose-smoke-verification.md`
 - `docs/issues/008-article-logical-delete-consistency.md`
 - `docs/issues/009-postgres-migration-verification.md`
+- `docs/issues/010-redis-cache-consistency-verification.md`
 
 ## Issue Maintenance
 
