@@ -31,9 +31,10 @@
 - 已完成：`008-article-logical-delete-consistency.md`
 - 已完成：`009-postgres-migration-verification.md`
 - 已完成：`010-redis-cache-consistency-verification.md`
+- 已完成：`011-minimal-web-frontend-acceptance.md`
 - Umbrella：`000-next-phase-roadmap.md`
 - 后续学习笔记：`003-redis-counter-learning-notes.md`
-- 后续任务：根据最小 Web 前端验收方向继续生成或调整
+- 后续任务：根据最小 Web 前端验收收口结果继续生成学习笔记或下一阶段任务
 
 ## Maintenance Rules
 
