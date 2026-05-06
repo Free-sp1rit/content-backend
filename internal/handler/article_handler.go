@@ -16,6 +16,7 @@ type articleService interface {
 	ListPublishedArticles(ctx context.Context) ([]model.Article, error)
 	ListMyArticles(ctx context.Context, authorID int64) ([]model.Article, error)
 	GetArticle(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
+	GetMyArticle(ctx context.Context, articleID, currentUserID int64) (model.Article, error)
 	UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error
 	DeleteArticle(ctx context.Context, articleID, currentUserID int64) error
 }
@@ -147,6 +148,35 @@ func (h *ArticleHandler) GetArticle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	article, err := h.articleService.GetArticle(r.Context(), id, viewer)
+	if writeArticleServiceError(w, err) {
+		return
+	}
+
+	res := toArticleDetailResponse(article)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+func (h *ArticleHandler) GetMyArticle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	currentUserID, ok := middleware.UserIDFromContext(r.Context())
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	articleID, err := parseMyArticleID(r.URL.Path)
+	if errors.Is(err, ErrInvalidArticleID) {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	article, err := h.articleService.GetMyArticle(r.Context(), articleID, currentUserID)
 	if writeArticleServiceError(w, err) {
 		return
 	}

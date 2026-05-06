@@ -91,6 +91,8 @@ func main() {
 	publicGetArticleHandler := authMiddleware.OptionalLogin(http.HandlerFunc(articleHandler.GetArticle))
 	protectedMyArticleHandler := authMiddleware.RequireLogin(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
+		case http.MethodGet:
+			articleHandler.GetMyArticle(w, r)
 		case http.MethodPut:
 			articleHandler.UpdateArticle(w, r)
 		case http.MethodDelete:

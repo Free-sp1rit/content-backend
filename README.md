@@ -11,6 +11,7 @@
 - 发布文章
 - 删除自己的文章
 - 查看我的文章列表
+- 查看自己的文章详情
 - 查看公开文章列表
 - 查看公开文章详情
 
@@ -296,7 +297,7 @@ npm run dev -- --host 127.0.0.1
 http://127.0.0.1:5173
 ```
 
-前端通过 Vite dev server proxy 转发 API 请求到后端，因此前端代码使用相对路径请求 `/healthz`、`/register`、`/login`、`/articles` 和 `/me/articles`，不需要第一版后端额外开启 CORS。
+前端通过 Vite dev server proxy 转发 API 请求到后端，因此前端代码使用相对路径请求 `/healthz`、`/register`、`/login`、`/articles`、`/articles/{id}`、`/me/articles` 和 `/me/articles/{id}`，不需要第一版后端额外开启 CORS。
 
 `web/go.mod` 只用于给 Go 工具链划定模块边界，避免在仓库根目录运行 `go test ./...` 时扫描 `web/node_modules`。
 
@@ -346,6 +347,7 @@ docker run --rm --network content-backend_default -v "$PWD":/app -w /app \
 - `GET /articles/{id}`
 - `POST /articles/publish`
 - `GET /me/articles`
+- `GET /me/articles/{id}`
 - `PUT /me/articles/{id}`
 - `DELETE /me/articles/{id}`
 
@@ -354,6 +356,7 @@ docker run --rm --network content-backend_default -v "$PWD":/app -w /app \
 - `POST /articles`
 - `POST /articles/publish`
 - `GET /me/articles`
+- `GET /me/articles/{id}`
 - `PUT /me/articles/{id}`
 - `DELETE /me/articles/{id}`
 
@@ -365,7 +368,7 @@ Authorization: Bearer <token>
 
 ## Current Status
 
-当前项目已经完成第一版 MVP 闭环，进入 Post-MVP Alpha 阶段。下一阶段重点是部署成熟化、Redis 运行边界、并发一致性和最小 Web 验收。
+当前项目已经完成第一版 MVP 闭环，进入 Post-MVP Alpha 阶段。当前重点是保持后端 API 契约、部署链路、Redis 运行边界、并发一致性和最小 Web 验收界面之间的一致性。
 
 当前已经支持：
 
@@ -381,6 +384,7 @@ Authorization: Bearer <token>
 - 文章发布/编辑基于 PostgreSQL 条件更新保护状态流转一致性
 - 文章删除使用 `deleted_at` 逻辑删除，并通过 PostgreSQL 条件更新保护删除一致性
 - `web/` 最小前端验收界面，覆盖注册、登录、公开文章、作者文章、创建、编辑、发布和删除
+- 作者侧文章详情接口 `GET /me/articles/{id}`，用于读取自己的 draft / published 正文并支持前端草稿编辑
 
 Alpha 阶段后续优先补充：
 

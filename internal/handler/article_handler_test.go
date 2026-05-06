@@ -16,6 +16,7 @@ type fakeArticleService struct {
 	listPublishedArticlesFunc func(ctx context.Context) ([]model.Article, error)
 	listMyArticlesFunc        func(ctx context.Context, authorID int64) ([]model.Article, error)
 	getArticleFunc            func(ctx context.Context, articleID int64, viewer service.ArticleViewer) (model.Article, error)
+	getMyArticleFunc          func(ctx context.Context, articleID, currentUserID int64) (model.Article, error)
 	updateArticleFunc         func(ctx context.Context, articleID, currentUserID int64, title, content string) error
 	deleteArticleFunc         func(ctx context.Context, articleID, currentUserID int64) error
 }
@@ -53,6 +54,13 @@ func (s *fakeArticleService) GetArticle(ctx context.Context, articleID int64, vi
 		return s.getArticleFunc(ctx, articleID, viewer)
 	}
 	panic("unexpected call to GetArticle")
+}
+
+func (s *fakeArticleService) GetMyArticle(ctx context.Context, articleID, currentUserID int64) (model.Article, error) {
+	if s.getMyArticleFunc != nil {
+		return s.getMyArticleFunc(ctx, articleID, currentUserID)
+	}
+	panic("unexpected call to GetMyArticle")
 }
 
 func (s *fakeArticleService) UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error {
@@ -236,6 +244,136 @@ func TestArticleHandler_GetArticle(t *testing.T) {
 
 		if rec.Code != http.StatusOK {
 			t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+		}
+		assertJSONContentType(t, rec)
+
+		var got ArticleDetailResponse
+		decodeJSONResponse(t, rec.Body, &got)
+		assertArticleDetailResponse(t, got, wantArticle)
+	})
+}
+
+func TestArticleHandler_GetMyArticle(t *testing.T) {
+	t.Run("method not allowed", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performHandlerRequest(http.MethodPost, "/me/articles/123", "", http.HandlerFunc(handler.GetMyArticle))
+
+		if rec.Code != http.StatusMethodNotAllowed {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+		}
+	})
+
+	t.Run("missing auth context", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performHandlerRequest(http.MethodGet, "/me/articles/123", "", http.HandlerFunc(handler.GetMyArticle))
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("bad path", func(t *testing.T) {
+		svc := &fakeArticleService{}
+		handler := NewArticleHandler(svc)
+
+		rec := performAuthenticatedHandlerRequest(
+			t,
+			7,
+			http.MethodGet,
+			"/me/articles/abc",
+			"",
+			http.HandlerFunc(handler.GetMyArticle),
+		)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusBadRequest)
+		}
+	})
+
+	errorCases := []struct {
+		name       string
+		serviceErr error
+		wantStatus int
+	}{
+		{name: "article not found", serviceErr: service.ErrArticleNotFound, wantStatus: http.StatusNotFound},
+		{name: "permission denied", serviceErr: service.ErrPermissionDenied, wantStatus: http.StatusForbidden},
+	}
+
+	for _, tc := range errorCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			svc := &fakeArticleService{
+				getMyArticleFunc: func(ctx context.Context, articleID, currentUserID int64) (model.Article, error) {
+					called = true
+					return model.Article{}, tc.serviceErr
+				},
+			}
+			handler := NewArticleHandler(svc)
+
+			rec := performAuthenticatedHandlerRequest(
+				t,
+				7,
+				http.MethodGet,
+				"/me/articles/123",
+				"",
+				http.HandlerFunc(handler.GetMyArticle),
+			)
+
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("got status %d, want %d", rec.Code, tc.wantStatus)
+			}
+			if !called {
+				t.Fatal("expected GetMyArticle to be called")
+			}
+		})
+	}
+
+	t.Run("success", func(t *testing.T) {
+		now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
+		wantArticle := model.Article{
+			ID:        123,
+			AuthorID:  7,
+			Title:     "draft title",
+			Content:   "draft content",
+			State:     model.ArticleStateDraft,
+			CreatedAt: now,
+			UpdatedAt: now,
+		}
+
+		called := false
+		svc := &fakeArticleService{
+			getMyArticleFunc: func(ctx context.Context, articleID, currentUserID int64) (model.Article, error) {
+				called = true
+				if articleID != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", articleID, wantArticle.ID)
+				}
+				if currentUserID != wantArticle.AuthorID {
+					t.Fatalf("got current user id %d, want %d", currentUserID, wantArticle.AuthorID)
+				}
+				return wantArticle, nil
+			},
+		}
+		handler := NewArticleHandler(svc)
+
+		rec := performAuthenticatedHandlerRequest(
+			t,
+			7,
+			http.MethodGet,
+			"/me/articles/123",
+			"",
+			http.HandlerFunc(handler.GetMyArticle),
+		)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("got status %d, want %d", rec.Code, http.StatusOK)
+		}
+		if !called {
+			t.Fatal("expected GetMyArticle to be called")
 		}
 		assertJSONContentType(t, rec)
 

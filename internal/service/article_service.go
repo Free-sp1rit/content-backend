@@ -200,6 +200,21 @@ func (s *ArticleService) GetArticle(ctx context.Context, articleID int64, viewer
 	return article, nil
 }
 
+func (s *ArticleService) GetMyArticle(ctx context.Context, articleID, currentUserID int64) (model.Article, error) {
+	article, err := s.articleRepo.GetByID(ctx, articleID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return model.Article{}, ErrArticleNotFound
+	}
+	if err != nil {
+		return model.Article{}, err
+	}
+	if article.AuthorID != currentUserID {
+		return model.Article{}, ErrPermissionDenied
+	}
+
+	return article, nil
+}
+
 func (s *ArticleService) UpdateArticle(ctx context.Context, articleID, currentUserID int64, title string, content string) error {
 	updated, err := s.articleRepo.UpdateContentIfAuthorAndState(
 		ctx,

@@ -32,9 +32,10 @@
 - 已完成：`009-postgres-migration-verification.md`
 - 已完成：`010-redis-cache-consistency-verification.md`
 - 已完成：`011-minimal-web-frontend-acceptance.md`
+- 已完成：`012-author-article-detail-contract.md`
 - Umbrella：`000-next-phase-roadmap.md`
 - 后续学习笔记：`003-redis-counter-learning-notes.md`
-- 后续任务：根据最小 Web 前端验收收口结果继续生成学习笔记或下一阶段任务
+- 后续任务：根据作者侧详情接口和前端草稿编辑链路收口结果继续生成学习笔记或下一阶段任务
 
 ## Maintenance Rules
 

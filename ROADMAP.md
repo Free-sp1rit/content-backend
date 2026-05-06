@@ -20,6 +20,7 @@
 - PostgreSQL migration 与 repository 真实 SQL 行为已有 opt-in 集成验证
 - 文章公开列表 Redis 缓存一致性已有 service 流程测试、RedisCache 命令测试和缓存预热 smoke 验证
 - `web/` 最小前端验收界面已覆盖注册、登录、公开文章、作者文章、创建、编辑、发布和删除
+- 作者侧文章详情接口已支持读取自己的 draft / published 正文，前端草稿编辑链路以 PostgreSQL 详情为事实来源
 - Docker Compose smoke 验证脚本覆盖 nginx、app、PostgreSQL、Redis 和核心 HTTP 链路
 - `gofmt` + `go test ./...` 最小 CI
 
@@ -46,6 +47,7 @@ Alpha 开发前文档与 agent instructions 收口
 -> PostgreSQL migration 与 repository 真实 SQL 验证
 -> 文章公开列表 Redis 缓存一致性验证
 -> 最小 Web 前端验收
+-> 作者侧文章详情与草稿编辑契约收口
 ```
 
 收口提交后，后续开发按学习节奏生成或调整小 issue 推进。
@@ -65,6 +67,7 @@ Alpha 开发前文档与 agent instructions 收口
 - `docs/issues/009-postgres-migration-verification.md`
 - `docs/issues/010-redis-cache-consistency-verification.md`
 - `docs/issues/011-minimal-web-frontend-acceptance.md`
+- `docs/issues/012-author-article-detail-contract.md`
 
 ## Issue Maintenance
 

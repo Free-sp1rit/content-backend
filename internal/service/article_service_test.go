@@ -888,6 +888,109 @@ func TestArticleService_GetArticle(t *testing.T) {
 	})
 }
 
+func TestArticleService_GetMyArticle(t *testing.T) {
+	t.Run("not found", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{}, sql.ErrNoRows
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		_, err := service.GetMyArticle(context.Background(), 1, 10)
+		assertErrIs(t, err, ErrArticleNotFound)
+	})
+
+	t.Run("repository error", func(t *testing.T) {
+		wantErr := errors.New("query failed")
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{}, wantErr
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		_, err := service.GetMyArticle(context.Background(), 1, 10)
+		assertErrIs(t, err, wantErr)
+	})
+
+	t.Run("not author", func(t *testing.T) {
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				return model.Article{ID: id, AuthorID: 99, State: model.ArticleStateDraft}, nil
+			},
+		}
+
+		service := NewArticleService(repo)
+
+		_, err := service.GetMyArticle(context.Background(), 1, 10)
+		assertErrIs(t, err, ErrPermissionDenied)
+	})
+
+	t.Run("author can read draft without incrementing view count", func(t *testing.T) {
+		wantArticle := model.Article{
+			ID:       1,
+			AuthorID: 10,
+			Title:    "draft title",
+			Content:  "draft content",
+			State:    model.ArticleStateDraft,
+		}
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				if id != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", id, wantArticle.ID)
+				}
+				return wantArticle, nil
+			},
+		}
+		counter := &fakeArticleViewCounter{}
+
+		service := NewArticleServiceWithViewCounter(repo, counter)
+
+		gotArticle, err := service.GetMyArticle(context.Background(), 1, 10)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticle.Content != wantArticle.Content {
+			t.Fatalf("got content %q, want %q", gotArticle.Content, wantArticle.Content)
+		}
+	})
+
+	t.Run("author can read published without incrementing view count", func(t *testing.T) {
+		wantArticle := model.Article{
+			ID:       2,
+			AuthorID: 10,
+			Title:    "published title",
+			Content:  "published content",
+			State:    model.ArticleStatePublished,
+		}
+		repo := &fakeArticleRepo{
+			getByIDFunc: func(ctx context.Context, id int64) (model.Article, error) {
+				if id != wantArticle.ID {
+					t.Fatalf("got article id %d, want %d", id, wantArticle.ID)
+				}
+				return wantArticle, nil
+			},
+		}
+		counter := &fakeArticleViewCounter{}
+
+		service := NewArticleServiceWithViewCounter(repo, counter)
+
+		gotArticle, err := service.GetMyArticle(context.Background(), 2, 10)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if gotArticle.State != model.ArticleStatePublished {
+			t.Fatalf("got state %q, want %q", gotArticle.State, model.ArticleStatePublished)
+		}
+		if gotArticle.Content != wantArticle.Content {
+			t.Fatalf("got content %q, want %q", gotArticle.Content, wantArticle.Content)
+		}
+	})
+}
+
 func TestArticleService_UpdateArticle(t *testing.T) {
 	t.Run("not found", func(t *testing.T) {
 		repo := &fakeArticleRepo{
