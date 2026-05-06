@@ -88,6 +88,10 @@ export function listMyArticles(token: string): Promise<ArticleSummary[]> {
   return request('/me/articles', { token })
 }
 
+export function getMyArticle(token: string, id: number): Promise<ArticleDetail> {
+  return request(`/me/articles/${id}`, { token })
+}
+
 export function createArticle(
   token: string,
   title: string,

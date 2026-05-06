@@ -5,6 +5,7 @@ import {
   createArticle,
   deleteArticle,
   getArticle,
+  getMyArticle,
   listMyArticles,
   listPublishedArticles,
   login,
@@ -21,7 +22,6 @@ type Notice = { tone: 'success' | 'error' | 'info'; text: string } | null
 
 const tokenStorageKey = 'content_backend_web_token'
 const emailStorageKey = 'content_backend_web_email'
-const draftContentStorageKey = 'content_backend_web_draft_content'
 
 function App() {
   const [token, setToken] = useState(() => localStorage.getItem(tokenStorageKey) ?? '')
@@ -41,17 +41,6 @@ function App() {
   const [editorArticleID, setEditorArticleID] = useState<number | null>(null)
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
-  const [draftContents, setDraftContents] = useState<Record<number, string>>(() => {
-    const raw = localStorage.getItem(draftContentStorageKey)
-    if (!raw) {
-      return {}
-    }
-    try {
-      return JSON.parse(raw) as Record<number, string>
-    } catch {
-      return {}
-    }
-  })
 
   const authenticated = token !== ''
   const sortedMyArticles = useMemo(
@@ -86,10 +75,6 @@ function App() {
       ignore = true
     }
   }, [])
-
-  useEffect(() => {
-    localStorage.setItem(draftContentStorageKey, JSON.stringify(draftContents))
-  }, [draftContents])
 
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label)
@@ -185,17 +170,19 @@ function App() {
     setNotice(null)
   }
 
-  function startEdit(article: ArticleSummary) {
-    setEditorArticleID(article.id)
-    setTitle(article.title)
-    setContent(draftContents[article.id] ?? '')
-    setView('editor')
-    if (!draftContents[article.id]) {
-      setNotice({
-        tone: 'info',
-        text: '后端当前没有作者侧草稿详情接口，请在保存前重新填写正文。',
-      })
+  async function startEdit(article: ArticleSummary) {
+    if (!token) {
+      setNotice({ tone: 'error', text: '请先登录。' })
+      return
     }
+
+    await run('正在加载草稿', async () => {
+      const detail = await getMyArticle(token, article.id)
+      setEditorArticleID(detail.id)
+      setTitle(detail.title)
+      setContent(detail.content)
+      setView('editor')
+    })
   }
 
   async function submitArticle(event: FormEvent<HTMLFormElement>) {
@@ -215,7 +202,6 @@ function App() {
     if (editorArticleID === null) {
       await run('正在创建草稿', async () => {
         const response = await createArticle(token, nextTitle, nextContent)
-        setDraftContents((current) => ({ ...current, [response.id]: nextContent }))
         setNotice({ tone: 'success', text: `草稿已创建，ID ${response.id}。` })
         setTitle('')
         setContent('')
@@ -227,7 +213,6 @@ function App() {
 
     await run('正在保存草稿', async () => {
       await updateArticle(token, editorArticleID, nextTitle, nextContent)
-      setDraftContents((current) => ({ ...current, [editorArticleID]: nextContent }))
       setNotice({ tone: 'success', text: '草稿已保存。' })
       await refreshMyArticlesAfterMutation()
       setView('mine')
@@ -246,11 +231,6 @@ function App() {
     }
     await run('正在发布文章', async () => {
       await publishArticle(token, articleID)
-      setDraftContents((current) => {
-        const next = { ...current }
-        delete next[articleID]
-        return next
-      })
       setNotice({ tone: 'success', text: '文章已发布。' })
       await refreshMyArticlesAfterMutation()
     })
@@ -262,11 +242,6 @@ function App() {
     }
     await run('正在删除文章', async () => {
       await deleteArticle(token, articleID)
-      setDraftContents((current) => {
-        const next = { ...current }
-        delete next[articleID]
-        return next
-      })
       if (selectedArticle?.id === articleID) {
         setSelectedArticle(null)
       }
@@ -380,7 +355,7 @@ function App() {
           articles={sortedMyArticles}
           onRefresh={() => void refreshMyArticles()}
           onCreate={startCreate}
-          onEdit={startEdit}
+          onEdit={(article) => void startEdit(article)}
           onPublish={(id) => void handlePublish(id)}
           onDelete={(id) => void handleDelete(id)}
           onOpen={(id) => void openPublicArticle(id)}
